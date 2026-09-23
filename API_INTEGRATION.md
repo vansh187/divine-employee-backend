@@ -3,7 +3,12 @@
 Written for the frontend Employee Portal team. Covers everything needed to wire the
 React app (currently pointed at mock data on `localhost:5175`) to this backend.
 
-- **Base URL (dev):** `http://localhost:8000/api/v1` (adjust host/port to however the backend is run)
+- **Base URL (deployed):** `https://divine-employee-backend.vercel.app/api/v1`
+- **Interactive API docs:** `https://divine-employee-backend.vercel.app/docs`
+- **Base URL (local dev):** `http://localhost:8000/api/v1` (adjust host/port to however the backend is run)
+- **Allowed browser origins (CORS):** `employee.divinevisioninfra.com` over http/https, with or without `www.`.
+  Browser calls from any other origin (including `localhost`) are blocked by the deployed API; to allow one,
+  add it to the backend's `CORS_ALLOWED_ORIGINS` environment variable.
 - **Format:** JSON in, JSON out. All responses share one of two envelopes (see below).
 - **Auth:** JWT bearer tokens.
 - **Versioning:** all routes are prefixed `/api/v1`; a breaking change ships as `/api/v2` alongside it.

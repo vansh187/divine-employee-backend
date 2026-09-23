@@ -28,6 +28,19 @@ class Settings(BaseSettings):
     lead_property_lock_duration_days: int = 3
     weekly_day_off_allowance: int = 1
 
+    # Browser origins allowed to call the API (CORS), comma-separated. An Origin
+    # header never has a path or trailing slash; any given here are stripped.
+    cors_allowed_origins: str = (
+        "https://employee.divinevisioninfra.com,"
+        "http://employee.divinevisioninfra.com,"
+        "https://www.employee.divinevisioninfra.com,"
+        "http://www.employee.divinevisioninfra.com"
+    )
+
+    @property
+    def cors_allowed_origin_list(self) -> list[str]:
+        return [origin.strip().rstrip("/") for origin in self.cors_allowed_origins.split(",") if origin.strip()]
+
     rate_limit_max_requests: int = 15
     rate_limit_window_seconds: int = 60
 
