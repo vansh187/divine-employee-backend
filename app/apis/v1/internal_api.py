@@ -1,6 +1,6 @@
 """Internal API — /api/v1/internal/* (scheduler-only, not for the employee app).
 
-Authenticated by the `X-Cron-Secret` header, not an employee JWT, and not
+Authenticated by CRON_SECRET (`X-Cron-Secret` header or `?key=`), not an employee JWT, and not
 rate-limited: the only caller is the external scheduler (cron-job.org).
 """
 
@@ -20,7 +20,9 @@ logger = logging.getLogger("divine_vision.internal_api")
 router = APIRouter(prefix="/internal", tags=["Internal"])
 
 
-@router.post("/sweep", response_model=SuccessResponse[dict[str, int]])
+# GET is accepted alongside POST so a scheduler can call a plain URL
+# (…/internal/sweep?key=<CRON_SECRET>). The sweep is idempotent.
+@router.api_route("/sweep", methods=["GET", "POST"], response_model=SuccessResponse[dict[str, int]])
 async def sweep_expired_locks(_cron: CronAuthDep, db: DatabaseDep) -> SuccessResponse[dict[str, int]]:
     try:
         result = await LockSweeper(LockPersistence(db), OpportunityPersistence(db)).sweep_once()
