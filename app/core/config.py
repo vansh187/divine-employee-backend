@@ -61,10 +61,10 @@ class Settings(BaseSettings):
     # --- Employee signup (email OTP) ---
     # Only these email domains may self-register (comma-separated). Empty = any
     # domain, which lets anyone on the internet create an employee account.
-    # To let test users on other domains in (e.g. gmail.com) set this in the
-    # deployment's environment, not here — anyone with an address on an allowed
-    # domain can create an employee account.
-    signup_allowed_email_domains: str = "divinevisioninfra.com"
+    # TEMPORARY: gmail.com is allowed while testing is in progress (requested
+    # 2026-09-24, until further notice). Anyone with a Gmail address can create an
+    # employee account — remove gmail.com here before launch.
+    signup_allowed_email_domains: str = "divinevisioninfra.com,gmail.com"
     # Individual addresses allowed in addition to the domains above
     # (comma-separated) — e.g. test users outside the company domain.
     signup_allowed_emails: str = ""
