@@ -7,7 +7,7 @@ one place: settings -> security helpers -> db -> current-employee identity.
 import hmac
 from typing import Annotated
 
-from fastapi import Depends, Header, Request
+from fastapi import Depends, Header, Query, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.core.config import Settings, get_settings
@@ -83,10 +83,19 @@ BackOfficeAuthDep = Annotated[None, Depends(require_back_office_key)]
 def require_cron_secret(
     settings: SettingsDep,
     x_cron_secret: Annotated[str | None, Header()] = None,
+    key: Annotated[str | None, Query()] = None,
 ) -> None:
-    """Gates the scheduler-only sweep endpoint; disabled while CRON_SECRET is unset."""
-    if not settings.cron_secret or not x_cron_secret or not hmac.compare_digest(
-        x_cron_secret.encode(), settings.cron_secret.encode()
+    """Gates the scheduler-only sweep endpoint; disabled while CRON_SECRET is unset.
+
+    Accepts the secret as the `X-Cron-Secret` header or, for simple schedulers
+    that can only hit a plain URL, a `?key=` query parameter. A URL secret can
+    end up in request logs; that's acceptable here because the sweep only
+    expires rows that are already past their expiry, so a leaked key can't
+    change any outcome — rotate CRON_SECRET if it leaks anyway.
+    """
+    provided = x_cron_secret or key
+    if not settings.cron_secret or not provided or not hmac.compare_digest(
+        provided.encode(), settings.cron_secret.encode()
     ):
         raise ForbiddenError("Scheduler authorization required")
 

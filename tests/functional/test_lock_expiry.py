@@ -107,6 +107,10 @@ async def test_sweep_endpoint_expires_lapsed_locks(client, make_employee, make_p
         assert data["expired_lead_locks"] >= 1
         assert data["expired_property_locks"] >= 1
         assert data["expired_opportunities"] >= 1
+
+        # Plain-URL form for simple schedulers: GET with ?key=.
+        assert (await client.get("/api/v1/internal/sweep", params={"key": _CRON_SECRET})).status_code == 200
+        assert (await client.get("/api/v1/internal/sweep", params={"key": "wrong"})).status_code == 403
     finally:
         app.dependency_overrides.pop(get_settings, None)
 
