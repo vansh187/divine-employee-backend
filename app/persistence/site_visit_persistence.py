@@ -38,6 +38,9 @@ class SiteVisitPersistence:
         self,
         employee_id: str,
         lead_id: str,
+        visitor_name: str,
+        visitor_phone: str,
+        visitor_email: str | None,
         project_id: str,
         property_id: str | None,
         visit_at: datetime,
@@ -50,15 +53,18 @@ class SiteVisitPersistence:
         row = await connection.fetchrow(
             """
             INSERT INTO site_visits (
-                employee_id, lead_id, project_id, property_id, visit_at,
-                notes, attachments, outcome, idempotency_key
+                employee_id, lead_id, visitor_name, visitor_phone, visitor_email,
+                project_id, property_id, visit_at, notes, attachments, outcome, idempotency_key
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9)
-            RETURNING id, employee_id, lead_id, project_id, property_id, visit_at,
-                      notes, attachments, outcome, created_at, updated_at
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11, $12)
+            RETURNING id, employee_id, lead_id, visitor_name, visitor_phone, visitor_email,
+                      project_id, property_id, visit_at, notes, attachments, outcome, created_at, updated_at
             """,
             employee_id,
             lead_id,
+            visitor_name,
+            visitor_phone,
+            visitor_email,
             project_id,
             property_id,
             visit_at,
@@ -73,7 +79,8 @@ class SiteVisitPersistence:
         async with self._db.acquire() as conn:
             row = await conn.fetchrow(
                 """
-                SELECT sv.id, sv.employee_id, sv.lead_id, sv.project_id, sv.property_id, sv.visit_at,
+                SELECT sv.id, sv.employee_id, sv.lead_id, sv.visitor_name, sv.visitor_phone, sv.visitor_email,
+                       sv.project_id, sv.property_id, sv.visit_at,
                        sv.notes, sv.attachments, sv.outcome, sv.created_at, sv.updated_at,
                        l.name AS lead_name, pr.name AS project_name, p.plot_no
                 FROM site_visits sv
@@ -93,7 +100,8 @@ class SiteVisitPersistence:
         async with self._db.acquire() as conn:
             rows = await conn.fetch(
                 """
-                SELECT sv.id, sv.employee_id, sv.lead_id, sv.project_id, sv.property_id, sv.visit_at,
+                SELECT sv.id, sv.employee_id, sv.lead_id, sv.visitor_name, sv.visitor_phone, sv.visitor_email,
+                       sv.project_id, sv.property_id, sv.visit_at,
                        sv.notes, sv.attachments, sv.outcome, sv.created_at, sv.updated_at,
                        l.name AS lead_name, pr.name AS project_name, p.plot_no
                 FROM site_visits sv

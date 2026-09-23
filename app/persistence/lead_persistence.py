@@ -69,16 +69,24 @@ class LeadPersistence:
         return await self.get_by_normalized_phone(normalized_phone, connection=connection)
 
     async def touch_latest_visit(
-        self, lead_id: str, current_employee_id: str, visit_at: datetime, connection: Any = None
+        self,
+        lead_id: str,
+        current_employee_id: str,
+        visit_at: datetime,
+        email: str | None = None,
+        connection: Any = None,
     ) -> None:
+        """`email` only fills a missing one — an existing master email is never
+        overwritten by a single visit's form (that visit keeps its own copy)."""
         query = """
             UPDATE leads
-            SET latest_visit_at = $2,
+            SET latest_visit_at = GREATEST(latest_visit_at, $2),
                 current_employee_id = $3,
+                email = COALESCE(email, $4),
                 lifecycle_status = CASE WHEN lifecycle_status = 'NEW' THEN 'IN_PROGRESS' ELSE lifecycle_status END
             WHERE id = $1
         """
-        params = (lead_id, visit_at, current_employee_id)
+        params = (lead_id, visit_at, current_employee_id, email)
         if connection is not None:
             await connection.execute(query, *params)
             return

@@ -72,8 +72,12 @@ class SiteVisitService:
                 return await self.get_site_visit(employee_id, str(existing["id"]))
 
         normalized_phone = self._phone_normalizer.normalize(payload.phone)
+        email = str(payload.email) if payload.email else None
+        # Always timezone-aware: a form date+time sent without an offset is
+        # business-local (IST). asyncpg would otherwise store a naive value as UTC.
+        visit_at = self._business_clock.localize(payload.visit_at)
         # Day-off rules are per business day, regardless of the offset the client sent.
-        visit_date = self._business_clock.business_date(payload.visit_at)
+        visit_date = visit_at.date()
 
         project = await self._property_persistence.get_project_by_id(payload.project_id)
         if project is None:
@@ -97,8 +101,8 @@ class SiteVisitService:
         try:
             async with self._db.transaction() as conn:
                 lead = await self._resolve_or_create_lead(
-                    conn, payload.visitor_name, normalized_phone, payload.phone, payload.email,
-                    employee_id, payload.visit_at,
+                    conn, payload.visitor_name, normalized_phone, payload.phone, email,
+                    employee_id, visit_at,
                 )
 
                 # Fetch each lock at most once per request — `FOR UPDATE` holds the
@@ -119,9 +123,12 @@ class SiteVisitService:
                 site_visit = await self._site_visit_persistence.create(
                     employee_id=employee_id,
                     lead_id=str(lead["id"]),
+                    visitor_name=payload.visitor_name,
+                    visitor_phone=payload.phone,
+                    visitor_email=email,
                     project_id=payload.project_id,
                     property_id=payload.property_id,
-                    visit_at=payload.visit_at,
+                    visit_at=visit_at,
                     notes=payload.notes,
                     attachments=payload.attachments,
                     outcome=payload.outcome,
@@ -140,7 +147,7 @@ class SiteVisitService:
                     )
 
                 await self._lead_persistence.touch_latest_visit(
-                    str(lead["id"]), employee_id, payload.visit_at, connection=conn
+                    str(lead["id"]), employee_id, visit_at, email=email, connection=conn
                 )
 
                 await self._opportunity_service.record_employee_claim(
@@ -150,7 +157,7 @@ class SiteVisitService:
                     property_id=payload.property_id,
                     employee_id=employee_id,
                     site_visit_id=str(site_visit["id"]),
-                    qualifying_at=payload.visit_at,
+                    qualifying_at=visit_at,
                     expires_at=lock_expires_at,
                 )
 
@@ -245,6 +252,9 @@ class SiteVisitService:
             id=str(row["id"]),
             employee_id=str(row["employee_id"]),
             lead_id=str(row["lead_id"]),
+            visitor_name=row.get("visitor_name"),
+            visitor_phone=row.get("visitor_phone"),
+            visitor_email=row.get("visitor_email"),
             project_id=str(row["project_id"]),
             property_id=str(row["property_id"]) if row.get("property_id") else None,
             visit_at=row["visit_at"],
