@@ -63,6 +63,10 @@ class AuthService:
             raise NotFoundError("Employee not found")
         return EmployeeProfileResponse(**employee)
 
+    async def issue_tokens(self, employee_id: str, employee_code: str, email: str) -> TokenPairResponse:
+        """Logs an already-authenticated employee in (e.g. right after signup verification)."""
+        return await self._issue_token_pair(employee_id, employee_code, email)
+
     async def _issue_token_pair(self, employee_id: str, employee_code: str, email: str) -> TokenPairResponse:
         access_token = self._token_service.create_access_token(employee_id, employee_code, email)
         refresh_token, expires_at = self._token_service.create_refresh_token(employee_id)
