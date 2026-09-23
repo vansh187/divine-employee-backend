@@ -5,6 +5,16 @@ from typing import Any
 from app.persistence.db_persistence import Database
 
 
+def _natural_plot_order(column: str) -> str:
+    """Orders plot numbers the way people read them: C1, C2 … C10 … C100, then
+    B1-A, B46A, B378A … — letter prefix, then the first number, then the rest."""
+    return (
+        f"substring({column} from '^[^0-9]*'), "
+        f"NULLIF(substring({column} from '[0-9]+'), '')::bigint NULLS LAST, "
+        f"{column}"
+    )
+
+
 class PropertyPersistence:
     def __init__(self, db: Database) -> None:
         self._db = db
@@ -50,11 +60,12 @@ class PropertyPersistence:
             rows = await conn.fetch(
                 f"""
                 SELECT p.id, p.project_id, p.plot_no, p.unit_type, p.area_sqft, p.status,
+                       p.width_m, p.length_m, p.area_sqm, p.area_sqyd,
                        p.created_at, p.updated_at, pr.name AS project_name, pr.location AS project_location
                 FROM properties p
                 JOIN projects pr ON pr.id = p.project_id
                 {where_clause}
-                ORDER BY pr.name ASC, p.plot_no ASC
+                ORDER BY pr.name ASC, {_natural_plot_order('p.plot_no')}
                 LIMIT ${len(params) + 1} OFFSET ${len(params) + 2}
                 """,
                 *params,
@@ -70,11 +81,12 @@ class PropertyPersistence:
     async def list_properties_by_project(self, project_id: str) -> list[dict[str, Any]]:
         async with self._db.acquire() as conn:
             rows = await conn.fetch(
-                """
-                SELECT id, project_id, plot_no, unit_type, area_sqft, status, created_at, updated_at
+                f"""
+                SELECT id, project_id, plot_no, unit_type, area_sqft, status, width_m, length_m, area_sqm, area_sqyd,
+                       created_at, updated_at
                 FROM properties
                 WHERE project_id = $1
-                ORDER BY plot_no ASC
+                ORDER BY {_natural_plot_order('plot_no')}
                 """,
                 project_id,
             )
@@ -82,7 +94,8 @@ class PropertyPersistence:
 
     async def get_property_by_id(self, property_id: str, connection: Any = None) -> dict[str, Any] | None:
         query = """
-            SELECT id, project_id, plot_no, unit_type, area_sqft, status, created_at, updated_at
+            SELECT id, project_id, plot_no, unit_type, area_sqft, status, width_m, length_m, area_sqm, area_sqyd,
+                       created_at, updated_at
             FROM properties
             WHERE id = $1
             FOR UPDATE

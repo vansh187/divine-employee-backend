@@ -43,6 +43,10 @@ class PropertyService:
                 plot_no=row["plot_no"],
                 unit_type=row["unit_type"],
                 area_sqft=row["area_sqft"],
+                width_m=row["width_m"],
+                length_m=row["length_m"],
+                area_sqm=row["area_sqm"],
+                area_sqyd=row["area_sqyd"],
                 status=row["status"],
                 updated_at=row["updated_at"],
             )
