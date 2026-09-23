@@ -31,8 +31,9 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
+    # The pool connects lazily on first use — never at startup — so a database
+    # outage degrades to per-request 500s instead of the app failing to boot.
     db = Database(settings)
-    await db.connect()
     app.state.db = db
     app.state.rate_limiter = RateLimiter(settings)
 
