@@ -9,12 +9,19 @@ LEAD_LOCKED and PROPERTY_LOCKED").
 
 
 class AppError(Exception):
-    """Base class for all business/domain errors."""
+    """Base class for all business/domain errors.
 
-    def __init__(self, code: str, message: str, status_code: int = 400) -> None:
+    `fields` (optional) uses the same `[{"field": ..., "message": ...}]` shape as
+    request-validation errors, so the frontend can show a message on one input.
+    """
+
+    def __init__(
+        self, code: str, message: str, status_code: int = 400, fields: list[dict[str, str]] | None = None
+    ) -> None:
         self.code = code
         self.message = message
         self.status_code = status_code
+        self.fields = fields
         super().__init__(message)
 
 
@@ -34,8 +41,8 @@ class ForbiddenError(AppError):
 
 
 class ValidationFailedError(AppError):
-    def __init__(self, message: str = "Validation failed") -> None:
-        super().__init__(code="VALIDATION_FAILED", message=message, status_code=422)
+    def __init__(self, message: str = "Validation failed", fields: list[dict[str, str]] | None = None) -> None:
+        super().__init__(code="VALIDATION_FAILED", message=message, status_code=422, fields=fields)
 
 
 class ConflictError(AppError):
@@ -76,6 +83,36 @@ class OpportunityConflictError(ConflictError):
 class DealLockedError(ConflictError):
     def __init__(self, message: str = "This property is under a confirmed deal lock") -> None:
         super().__init__(code="DEAL_LOCKED", message=message)
+
+
+class EmailAlreadyRegisteredError(ConflictError):
+    def __init__(self, message: str = "An employee account already exists with this email") -> None:
+        super().__init__(code="EMAIL_ALREADY_REGISTERED", message=message)
+
+
+class EmployeeIdAlreadyRegisteredError(ConflictError):
+    def __init__(self, message: str = "This employee ID is already registered") -> None:
+        super().__init__(code="EMPLOYEE_ID_ALREADY_REGISTERED", message=message)
+
+
+class InvalidOtpError(AppError):
+    def __init__(self, message: str = "The code is incorrect") -> None:
+        super().__init__(code="INVALID_OTP", message=message, status_code=422)
+
+
+class OtpExpiredError(AppError):
+    def __init__(self, message: str = "The code has expired. Request a new one.") -> None:
+        super().__init__(code="OTP_EXPIRED", message=message, status_code=410)
+
+
+class EmailDeliveryError(AppError):
+    def __init__(self, message: str = "We couldn't send the verification email. Please try again shortly.") -> None:
+        super().__init__(code="EMAIL_DELIVERY_FAILED", message=message, status_code=503)
+
+
+class ServiceUnavailableError(AppError):
+    def __init__(self, message: str = "The service is temporarily unavailable. Please try again shortly.") -> None:
+        super().__init__(code="SERVICE_UNAVAILABLE", message=message, status_code=503)
 
 
 class RateLimitExceededError(AppError):

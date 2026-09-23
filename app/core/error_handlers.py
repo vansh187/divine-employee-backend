@@ -23,10 +23,10 @@ logger = logging.getLogger("divine_vision")
 def register_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(AppError)
     async def handle_app_error(request: Request, exc: AppError) -> JSONResponse:
-        return JSONResponse(
-            status_code=exc.status_code,
-            content={"success": False, "error": {"code": exc.code, "message": exc.message}},
-        )
+        error: dict[str, object] = {"code": exc.code, "message": exc.message}
+        if exc.fields:
+            error["fields"] = exc.fields
+        return JSONResponse(status_code=exc.status_code, content={"success": False, "error": error})
 
     @app.exception_handler(RequestValidationError)
     async def handle_validation_error(request: Request, exc: RequestValidationError) -> JSONResponse:

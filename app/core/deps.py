@@ -13,6 +13,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from app.core.config import Settings, get_settings
 from app.core.context import CurrentEmployee
 from app.core.datetime_utils import BusinessClock
+from app.core.email_sender import EmailSender, build_email_sender
 from app.core.exceptions import ForbiddenError
 from app.core.security import TOKEN_TYPE_ACCESS, PasswordHasher, TokenService
 from app.persistence.db_persistence import Database
@@ -41,6 +42,13 @@ def get_password_hasher() -> PasswordHasher:
 
 
 PasswordHasherDep = Annotated[PasswordHasher, Depends(get_password_hasher)]
+
+
+def get_email_sender(settings: SettingsDep) -> EmailSender:
+    return build_email_sender(settings)
+
+
+EmailSenderDep = Annotated[EmailSender, Depends(get_email_sender)]
 
 
 def get_business_clock(settings: SettingsDep) -> BusinessClock:

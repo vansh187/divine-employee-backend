@@ -11,17 +11,51 @@ class EmployeePersistence:
         self._db = db
 
     async def get_by_email(self, email: str) -> dict[str, Any] | None:
+        """Case-insensitive (backed by uq_employees_email_lower)."""
         async with self._db.acquire() as conn:
             row = await conn.fetchrow(
                 """
                 SELECT id, employee_code, name, email, phone, password_hash, team, designation,
                        status, weekly_day_off_allowance, business_timezone, created_at, updated_at
                 FROM employees
-                WHERE email = $1
+                WHERE lower(email) = lower($1)
                 """,
                 email,
             )
         return dict(row) if row else None
+
+    async def email_exists(self, email: str) -> bool:
+        async with self._db.acquire() as conn:
+            value = await conn.fetchval(
+                "SELECT EXISTS (SELECT 1 FROM employees WHERE lower(email) = lower($1))", email
+            )
+        return bool(value)
+
+    async def employee_code_exists(self, employee_code: str) -> bool:
+        async with self._db.acquire() as conn:
+            value = await conn.fetchval(
+                "SELECT EXISTS (SELECT 1 FROM employees WHERE lower(employee_code) = lower($1))", employee_code
+            )
+        return bool(value)
+
+    async def create(
+        self, employee_code: str, name: str, email: str, password_hash: str, connection: Any
+    ) -> dict[str, Any]:
+        """Creates an ACTIVE employee. Duplicate email/code raise UniqueViolationError
+        (employees_email_key / uq_employees_email_lower, employees_employee_code_key /
+        uq_employees_employee_code_lower) for the caller to translate."""
+        row = await connection.fetchrow(
+            """
+            INSERT INTO employees (employee_code, name, email, password_hash, status)
+            VALUES ($1, $2, $3, $4, 'ACTIVE')
+            RETURNING id, employee_code, name, email, status
+            """,
+            employee_code,
+            name,
+            email,
+            password_hash,
+        )
+        return dict(row)
 
     async def get_by_id(self, employee_id: str) -> dict[str, Any] | None:
         async with self._db.acquire() as conn:

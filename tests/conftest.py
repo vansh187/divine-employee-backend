@@ -33,7 +33,7 @@ _ALL_TABLES = [
     "deal_locks", "deals", "opportunity_resolutions", "opportunity_claims", "opportunities",
     "property_locks", "lead_locks", "follow_up_actions", "site_visits", "leads",
     "attendance_records", "weekly_day_offs", "notifications", "audit_events",
-    "properties", "projects", "channel_partners", "refresh_tokens", "employees",
+    "properties", "projects", "channel_partners", "refresh_tokens", "employee_signups", "employees",
 ]
 
 
@@ -42,8 +42,21 @@ def settings():
     return get_settings()
 
 
+def _assert_disposable_database(database_url: str) -> None:
+    """The functional suite TRUNCATEs every table. Refuse to touch any database
+    whose name doesn't end in `_test` — e.g. the live `postgres` database."""
+    database_name = database_url.rsplit("/", 1)[-1].split("?", 1)[0]
+    if not database_name.endswith("_test"):
+        pytest.exit(
+            f"Refusing to run functional tests against database '{database_name}': they erase every table. "
+            "Point DATABASE_URL at a *_test database (e.g. divine_test).",
+            returncode=2,
+        )
+
+
 @pytest_asyncio.fixture(scope="session")
 async def _reset_test_db(settings):
+    _assert_disposable_database(settings.database_url)
     conn = await asyncpg.connect(dsn=settings.database_url)
     try:
         await conn.execute(f"TRUNCATE {', '.join(_ALL_TABLES)} RESTART IDENTITY CASCADE")
