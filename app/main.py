@@ -12,6 +12,7 @@ from app.apis.v1.auth_api import router as auth_router
 from app.apis.v1.dashboard_api import router as dashboard_router
 from app.apis.v1.day_off_api import router as day_off_router
 from app.apis.v1.deal_api import router as deal_router
+from app.apis.v1.internal_api import router as internal_router
 from app.apis.v1.lead_api import router as lead_router
 from app.apis.v1.notification_api import router as notification_router
 from app.apis.v1.opportunity_api import router as opportunity_router
@@ -38,7 +39,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.rate_limiter = RateLimiter(settings)
 
     lock_sweeper = LockSweeper(LockPersistence(db), OpportunityPersistence(db))
-    lock_sweeper.start()
+    if settings.enable_background_lock_sweeper:
+        lock_sweeper.start()
 
     try:
         yield
@@ -76,6 +78,7 @@ def create_app() -> FastAPI:
     app.include_router(notification_router, prefix=prefix)
     app.include_router(opportunity_router, prefix=prefix)
     app.include_router(deal_router, prefix=prefix)
+    app.include_router(internal_router, prefix=prefix)
 
     @app.get("/health")
     async def health_check() -> dict[str, str]:

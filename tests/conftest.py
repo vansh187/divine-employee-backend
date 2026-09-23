@@ -7,8 +7,14 @@ every test starts from a known-empty state; test data created afterwards is
 managed per-fixture.
 """
 
+import os
 import uuid
 from decimal import Decimal
+
+# Tests drive expiry explicitly (lapsed-lock lookups, the sweep endpoint); a
+# background sweep firing mid-test would make those assertions racy. Must be set
+# before app settings are first loaded.
+os.environ.setdefault("ENABLE_BACKGROUND_LOCK_SWEEPER", "false")
 
 import asyncpg
 import httpx

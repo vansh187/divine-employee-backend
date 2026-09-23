@@ -140,7 +140,7 @@ class LeadPersistence:
                 SELECT l.id, l.name, l.normalized_phone, l.lifecycle_status, l.latest_visit_at,
                        ll.expires_at
                 FROM leads l
-                JOIN lead_locks ll ON ll.lead_id = l.id AND ll.status = 'ACTIVE'
+                JOIN lead_locks ll ON ll.lead_id = l.id AND ll.status = 'ACTIVE' AND ll.expires_at > now()
                 WHERE ll.employee_id = $1
                 ORDER BY ll.expires_at ASC
                 LIMIT $2

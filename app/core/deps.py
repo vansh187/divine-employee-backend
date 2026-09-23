@@ -78,3 +78,17 @@ def require_back_office_key(
 
 
 BackOfficeAuthDep = Annotated[None, Depends(require_back_office_key)]
+
+
+def require_cron_secret(
+    settings: SettingsDep,
+    x_cron_secret: Annotated[str | None, Header()] = None,
+) -> None:
+    """Gates the scheduler-only sweep endpoint; disabled while CRON_SECRET is unset."""
+    if not settings.cron_secret or not x_cron_secret or not hmac.compare_digest(
+        x_cron_secret.encode(), settings.cron_secret.encode()
+    ):
+        raise ForbiddenError("Scheduler authorization required")
+
+
+CronAuthDep = Annotated[None, Depends(require_cron_secret)]
