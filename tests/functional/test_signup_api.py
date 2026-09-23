@@ -158,7 +158,7 @@ async def test_existing_employee_id_is_rejected_case_insensitively(client, mailb
 
 
 async def test_non_company_email_is_rejected(client, mailbox):
-    response = await _start(client, f"someone.{uuid.uuid4().hex[:6]}@gmail.com", "DVI-9999")
+    response = await _start(client, f"someone.{uuid.uuid4().hex[:6]}@example.org", "DVI-9999")
     assert response.status_code == 422
     error = response.json()["error"]
     assert error["code"] == "VALIDATION_FAILED"
@@ -166,8 +166,17 @@ async def test_non_company_email_is_rejected(client, mailbox):
     assert mailbox.sent == []
 
 
+async def test_gmail_can_sign_up_and_log_in_by_default(client, mailbox):
+    tester = f"gmail.tester.{uuid.uuid4().hex[:6]}@gmail.com"
+    _, employee_id = _new_identity()
+    assert (await _start(client, tester, employee_id)).status_code == 201
+    assert (await _verify(client, tester, mailbox.last_code_for(tester))).status_code == 200
+    login = await client.post("/api/v1/auth/login", json={"email": tester, "password": "Str0ng-pass!"})
+    assert login.status_code == 200, login.text
+
+
 async def test_individually_allowed_email_can_sign_up(client, mailbox):
-    tester = f"tester.{uuid.uuid4().hex[:6]}@gmail.com"
+    tester = f"tester.{uuid.uuid4().hex[:6]}@example.org"
     _use_settings(signup_allowed_emails=f"someone@else.com, {tester.upper()}")
     _, employee_id = _new_identity()
 
@@ -185,7 +194,7 @@ async def test_individually_allowed_email_can_sign_up(client, mailbox):
     assert me.json()["data"]["email"] == tester
 
     # Other addresses on the same domain are still rejected.
-    other = await _start(client, f"other.{uuid.uuid4().hex[:6]}@gmail.com", f"{employee_id}-2")
+    other = await _start(client, f"other.{uuid.uuid4().hex[:6]}@example.org", f"{employee_id}-2")
     assert other.status_code == 422
 
 
