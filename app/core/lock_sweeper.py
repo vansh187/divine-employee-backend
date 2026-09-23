@@ -1,8 +1,12 @@
-"""Background sweep that expires stale Lead/Property locks on a timer.
+"""Sweep that expires stale Lead/Property locks and Opportunities.
 
 Requirement §11: "Lock expiry must run server-side and must not depend on the
-browser being open." This runs inside the API process itself so no separate
-cron/worker deployment is required for V1.
+browser being open." Two ways to drive it:
+  * `start()` — an in-process timer, for long-running hosts (uvicorn on a VM).
+  * `sweep_once()` — called by POST /api/v1/internal/sweep from an external
+    scheduler (cron-job.org), for serverless hosts where no process stays up.
+Lock/opportunity lookups also expire lapsed rows themselves, so the sweep only
+keeps statuses and inventory tidy; it is not needed for correctness.
 """
 
 import asyncio
@@ -33,18 +37,26 @@ class LockSweeper:
             except asyncio.CancelledError:
                 pass
 
+    async def sweep_once(self) -> dict[str, int]:
+        lead_count, property_count = await self._lock_persistence.release_expired_locks()
+        opportunity_count = await self._opportunity_persistence.expire_stale_opportunities()
+        if lead_count or property_count or opportunity_count:
+            logger.info(
+                "Expired %s lead locks, %s property locks, %s opportunities",
+                lead_count,
+                property_count,
+                opportunity_count,
+            )
+        return {
+            "expired_lead_locks": lead_count,
+            "expired_property_locks": property_count,
+            "expired_opportunities": opportunity_count,
+        }
+
     async def _run_forever(self) -> None:
         while True:
             try:
-                lead_count, property_count = await self._lock_persistence.release_expired_locks()
-                opportunity_count = await self._opportunity_persistence.expire_stale_opportunities()
-                if lead_count or property_count or opportunity_count:
-                    logger.info(
-                        "Expired %s lead locks, %s property locks, %s opportunities",
-                        lead_count,
-                        property_count,
-                        opportunity_count,
-                    )
+                await self.sweep_once()
             except Exception:
                 logger.exception("Lock sweep iteration failed")
             await asyncio.sleep(_SWEEP_INTERVAL_SECONDS)

@@ -16,7 +16,15 @@ class LockPersistence:
         There is deliberately no no-connection fallback: a bare `acquire()` would
         release the lock the instant this query returns, making the enforcement
         it exists for a no-op.
+
+        A lock past `expires_at` is expired here, in the caller's transaction,
+        before the lookup — so correctness never depends on when the periodic
+        sweep last ran (on serverless hosts it may not have run for a while).
         """
+        await connection.execute(
+            "UPDATE lead_locks SET status = 'EXPIRED' WHERE lead_id = $1 AND status = 'ACTIVE' AND expires_at <= now()",
+            lead_id,
+        )
         row = await connection.fetchrow(
             """
             SELECT id, lead_id, employee_id, site_visit_id, locked_at, expires_at, status
@@ -29,7 +37,23 @@ class LockPersistence:
         return dict(row) if row else None
 
     async def get_active_property_lock(self, property_id: str, connection: Any) -> dict[str, Any] | None:
-        """See `get_active_lead_lock` — `connection` must come from a transaction."""
+        """See `get_active_lead_lock` — `connection` must come from a transaction,
+        and a lock past `expires_at` is expired first (reverting a plain LOCKED plot)."""
+        expired_count = await connection.fetchval(
+            """
+            WITH expired AS (
+                UPDATE property_locks SET status = 'EXPIRED'
+                WHERE property_id = $1 AND status = 'ACTIVE' AND expires_at <= now()
+                RETURNING 1
+            )
+            SELECT count(*) FROM expired
+            """,
+            property_id,
+        )
+        if expired_count:
+            await connection.execute(
+                "UPDATE properties SET status = 'AVAILABLE' WHERE id = $1 AND status = 'LOCKED'", property_id
+            )
         row = await connection.fetchrow(
             """
             SELECT id, property_id, employee_id, site_visit_id, lead_lock_id, locked_at, expires_at, status
@@ -137,10 +161,11 @@ class LockPersistence:
                        p.id AS property_id, p.plot_no, pr.name AS project_name
                 FROM lead_locks ll
                 JOIN leads l ON l.id = ll.lead_id
-                LEFT JOIN property_locks pl ON pl.lead_lock_id = ll.id AND pl.status = 'ACTIVE'
+                LEFT JOIN property_locks pl
+                    ON pl.lead_lock_id = ll.id AND pl.status = 'ACTIVE' AND pl.expires_at > now()
                 LEFT JOIN properties p ON p.id = pl.property_id
                 LEFT JOIN projects pr ON pr.id = p.project_id
-                WHERE ll.employee_id = $1 AND ll.status = 'ACTIVE'
+                WHERE ll.employee_id = $1 AND ll.status = 'ACTIVE' AND ll.expires_at > now()
                 ORDER BY ll.expires_at ASC
                 """,
                 employee_id,

@@ -47,7 +47,10 @@ class DealService:
                 # Claim the opportunity first: a concurrent conversion (or an
                 # expiry/conflict since the read above) makes this a no-op.
                 if not await self._opportunity_persistence.mark_converted(opportunity_id, connection=conn):
-                    raise ConflictError("OPPORTUNITY_NOT_ACTIVE", "Only an ACTIVE opportunity can be converted to a deal")
+                    raise ConflictError(
+                        "OPPORTUNITY_NOT_ACTIVE",
+                        "Only an ACTIVE, unexpired opportunity can be converted to a deal",
+                    )
 
                 existing_lock = await self._deal_persistence.get_active_lock_for_property(property_id, connection=conn)
                 if existing_lock is not None:

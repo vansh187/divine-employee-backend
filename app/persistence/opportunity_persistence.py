@@ -13,6 +13,16 @@ class OpportunityPersistence:
     async def get_active_by_lead_and_property(
         self, lead_id: str, property_id: str, connection: Any
     ) -> dict[str, Any] | None:
+        # Expire a lapsed opportunity first (same rule as the periodic sweep) so a
+        # stale ACTIVE row never produces a false attribution conflict.
+        await connection.execute(
+            """
+            UPDATE opportunities SET status = 'EXPIRED'
+            WHERE lead_id = $1 AND property_id = $2 AND status = 'ACTIVE' AND expires_at <= now()
+            """,
+            lead_id,
+            property_id,
+        )
         row = await connection.fetchrow(
             """
             SELECT id, lead_id, project_id, property_id, source_owner_type, source_owner_employee_id,
@@ -30,6 +40,15 @@ class OpportunityPersistence:
     async def get_active_by_lead_and_project_no_property(
         self, lead_id: str, project_id: str, connection: Any
     ) -> dict[str, Any] | None:
+        await connection.execute(
+            """
+            UPDATE opportunities SET status = 'EXPIRED'
+            WHERE lead_id = $1 AND project_id = $2 AND property_id IS NULL
+              AND status = 'ACTIVE' AND expires_at <= now()
+            """,
+            lead_id,
+            project_id,
+        )
         row = await connection.fetchrow(
             """
             SELECT id, lead_id, project_id, property_id, source_owner_type, source_owner_employee_id,
@@ -87,9 +106,13 @@ class OpportunityPersistence:
         )
 
     async def mark_converted(self, opportunity_id: str, connection: Any) -> bool:
-        """ACTIVE -> CONVERTED; False if the opportunity was no longer ACTIVE."""
+        """ACTIVE -> CONVERTED; False if the opportunity is no longer ACTIVE or its protection has lapsed."""
         updated_id = await connection.fetchval(
-            "UPDATE opportunities SET status = 'CONVERTED' WHERE id = $1 AND status = 'ACTIVE' RETURNING id",
+            """
+            UPDATE opportunities SET status = 'CONVERTED'
+            WHERE id = $1 AND status = 'ACTIVE' AND expires_at > now()
+            RETURNING id
+            """,
             opportunity_id,
         )
         return updated_id is not None

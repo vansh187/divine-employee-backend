@@ -37,6 +37,13 @@ class Settings(BaseSettings):
     # back to a guessable value.
     back_office_api_key: str = Field(min_length=32)
 
+    # Lock expiry sweep. On serverless hosts (Vercel) turn the in-process timer
+    # off and have an external scheduler (cron-job.org) call
+    # POST /api/v1/internal/sweep with header `X-Cron-Secret: <CRON_SECRET>`.
+    # The endpoint is disabled (403) while CRON_SECRET is unset.
+    enable_background_lock_sweeper: bool = True
+    cron_secret: str | None = Field(default=None, min_length=32)
+
 
 @lru_cache
 def get_settings() -> Settings:
