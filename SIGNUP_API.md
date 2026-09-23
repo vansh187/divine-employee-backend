@@ -28,8 +28,9 @@ ever sent by email, never in a response.
 
 ## Rules
 
-- **Only company emails can sign up:** `@divinevisioninfra.com`. Any other domain gets `422`
-  with a `fields` entry for `body.email` ("Only @divinevisioninfra.com email addresses can sign up").
+- **Allowed email domains:** `@divinevisioninfra.com` and, during testing, `@gmail.com`. Any other
+  domain gets `422` with a `fields` entry for `body.email` ("Only @divinevisioninfra.com, @gmail.com
+  email addresses can sign up"). `@gmail.com` will be removed before launch.
 - **Email and employee ID are case-insensitive.** `Priya@…` and `priya@…` are the same account.
   Login is case-insensitive too.
 - **Employee ID format:** letters, digits and `. _ / -`, starting with a letter or digit,
