@@ -23,6 +23,10 @@ class PropertyResponse(BaseModel):
     plot_no: str
     unit_type: str | None
     area_sqft: Decimal | None
+    width_m: Decimal | None = None
+    length_m: Decimal | None = None
+    area_sqm: Decimal | None = None
+    area_sqyd: Decimal | None = None
     status: str
     created_at: datetime
     updated_at: datetime
@@ -36,5 +40,9 @@ class InventoryItemResponse(BaseModel):
     plot_no: str
     unit_type: str | None
     area_sqft: Decimal | None
+    width_m: Decimal | None = None
+    length_m: Decimal | None = None
+    area_sqm: Decimal | None = None
+    area_sqyd: Decimal | None = None
     status: str
     updated_at: datetime

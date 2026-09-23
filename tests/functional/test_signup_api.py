@@ -166,7 +166,14 @@ async def test_non_company_email_is_rejected(client, mailbox):
     assert mailbox.sent == []
 
 
-async def test_gmail_can_sign_up_and_log_in_by_default(client, mailbox):
+async def test_gmail_is_blocked_by_default(client, mailbox):
+    response = await _start(client, f"gmail.tester.{uuid.uuid4().hex[:6]}@gmail.com", "DVI-GMAIL")
+    assert response.status_code == 422
+    assert mailbox.sent == []
+
+
+async def test_extra_domain_from_settings_can_sign_up_and_log_in(client, mailbox):
+    _use_settings(signup_allowed_email_domains=f"{_DOMAIN},gmail.com")
     tester = f"gmail.tester.{uuid.uuid4().hex[:6]}@gmail.com"
     _, employee_id = _new_identity()
     assert (await _start(client, tester, employee_id)).status_code == 201
