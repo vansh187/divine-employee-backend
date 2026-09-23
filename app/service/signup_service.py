@@ -242,7 +242,7 @@ class SignupService:
 
     def _assert_allowed_domain(self, email: str) -> None:
         allowed = self._settings.signup_allowed_email_domain_list
-        if not allowed:
+        if not allowed or email in self._settings.signup_allowed_email_list:
             return
         domain = email.rsplit("@", 1)[-1]
         if domain not in allowed:

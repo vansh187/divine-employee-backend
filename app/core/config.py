@@ -62,6 +62,9 @@ class Settings(BaseSettings):
     # Only these email domains may self-register (comma-separated). Empty = any
     # domain, which lets anyone on the internet create an employee account.
     signup_allowed_email_domains: str = "divinevisioninfra.com"
+    # Individual addresses allowed in addition to the domains above
+    # (comma-separated) — e.g. test users outside the company domain.
+    signup_allowed_emails: str = ""
     signup_otp_ttl_minutes: int = Field(default=10, ge=1, le=60)
     signup_otp_max_attempts: int = Field(default=5, ge=1, le=20)
     signup_otp_resend_cooldown_seconds: int = Field(default=30, ge=0, le=3600)
@@ -107,6 +110,10 @@ class Settings(BaseSettings):
             for domain in self.signup_allowed_email_domains.split(",")
             if domain.strip()
         ]
+
+    @property
+    def signup_allowed_email_list(self) -> list[str]:
+        return [email.strip().lower() for email in self.signup_allowed_emails.split(",") if email.strip()]
 
 
 @lru_cache

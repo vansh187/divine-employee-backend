@@ -166,6 +166,29 @@ async def test_non_company_email_is_rejected(client, mailbox):
     assert mailbox.sent == []
 
 
+async def test_individually_allowed_email_can_sign_up(client, mailbox):
+    tester = f"tester.{uuid.uuid4().hex[:6]}@gmail.com"
+    _use_settings(signup_allowed_emails=f"someone@else.com, {tester.upper()}")
+    _, employee_id = _new_identity()
+
+    started = await _start(client, tester, employee_id)
+    assert started.status_code == 201, started.text
+    assert (await _verify(client, tester, mailbox.last_code_for(tester))).status_code == 200
+
+    # The test user can then log in normally (any casing) and use the API.
+    login = await client.post("/api/v1/auth/login", json={"email": tester.upper(), "password": "Str0ng-pass!"})
+    assert login.status_code == 200, login.text
+    me = await client.get(
+        "/api/v1/auth/me", headers={"Authorization": f"Bearer {login.json()['data']['access_token']}"}
+    )
+    assert me.status_code == 200
+    assert me.json()["data"]["email"] == tester
+
+    # Other addresses on the same domain are still rejected.
+    other = await _start(client, f"other.{uuid.uuid4().hex[:6]}@gmail.com", f"{employee_id}-2")
+    assert other.status_code == 422
+
+
 async def test_invalid_inputs_return_field_errors(client, mailbox):
     email, employee_id = _new_identity()
     cases = [
