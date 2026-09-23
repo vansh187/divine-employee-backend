@@ -171,6 +171,27 @@ GET  /site-visits/{site_visit_id}   (bearer)
 }
 ```
 
+**"Log a Site Visit" form → request fields:**
+
+| Form input | Request field | Notes |
+|---|---|---|
+| Logging as | — | Taken from the bearer token; don't send it. |
+| Visitor name | `visitor_name` | Required. |
+| Phone | `phone` | Required. Any common format (`+91 98xxx xxxxx`, `98xxxxxxxx`). |
+| Email (optional) | `email` | Must be a valid email if given. |
+| Project / Site | `project_id` | Required. Options from `GET /properties/projects` (use `id`). |
+| Unit / Plot (optional) | `property_id` | Options from `GET /properties/projects/{project_id}/plots`. "No specific plot" → `null` or `""`. Only offer plots with status `AVAILABLE` (or locked to you). |
+| Visit date + Visit time | `visit_at` | Combine into one value: `"2026-09-23T23:41:00+05:30"`. Without an offset it's taken as IST. |
+| Outcome | `outcome` | One of the enum values above; "Select outcome" → `null` or `""`. |
+| Notes | `notes` | Optional, up to 5000 characters. |
+| (hidden) | `idempotency_key` | New UUID per form open; reuse it on retries. |
+
+Empty strings from untouched optional inputs are treated as "not provided", so the form can be
+submitted as-is. Every value entered is stored on the visit exactly as typed and returned as
+`visitor_name`, `visitor_phone`, `visitor_email`, `project_id`, `property_id`, `visit_at`,
+`outcome` and `notes` (plus `project_name`/`plot_no` for display). `lead_name` is the customer's
+master name on the Lead, which can differ from this visit's `visitor_name` for a returning customer.
+
 **Always send `idempotency_key`** (e.g. a UUID generated client-side per form submission). If the request is retried (flaky network, double-tap), the same key returns the original visit instead of creating a duplicate — critical for the "Log Visit" button on mobile networks.
 
 Phone numbers are normalized server-side (10-digit Indian mobile, with/without `+91`/leading `0` all converge to the same Lead) — don't pre-format beyond basic digit entry.
