@@ -33,6 +33,12 @@ def test_allowed_domain_list_parsing() -> None:
     assert get_settings().model_copy(update={"signup_allowed_email_domains": ""}).signup_allowed_email_domain_list == []
 
 
+def test_allowed_email_list_parsing() -> None:
+    settings = get_settings().model_copy(update={"signup_allowed_emails": " Tester@Gmail.com, ,qa@x.org "})
+    assert settings.signup_allowed_email_list == ["tester@gmail.com", "qa@x.org"]
+    assert get_settings().model_copy(update={"signup_allowed_emails": ""}).signup_allowed_email_list == []
+
+
 def test_resend_api_key_fills_in_smtp_settings() -> None:
     settings = get_settings().model_copy(
         update={"resend_api_key": "re_test", "smtp_host": None, "smtp_username": None, "smtp_password": None}
