@@ -254,3 +254,18 @@ class OpportunityPersistence:
                 opportunity_id,
             )
         return [dict(row) for row in rows]
+
+    async def list_for_lead(self, lead_id: str) -> list[dict[str, Any]]:
+        async with self._db.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT id, lead_id, project_id, property_id, source_owner_type, source_owner_employee_id,
+                       source_owner_channel_partner_id, handling_employee_id, source, status,
+                       attribution_status, locked_at, expires_at, created_at, updated_at
+                FROM opportunities
+                WHERE lead_id = $1
+                ORDER BY created_at DESC
+                """,
+                lead_id,
+            )
+        return [dict(row) for row in rows]
