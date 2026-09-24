@@ -5,6 +5,23 @@ from datetime import datetime
 from pydantic import BaseModel, Field
 
 
+class OpportunityInLeadResponse(BaseModel):
+    id: str
+    project_id: str
+    property_id: str | None
+    source_owner_type: str
+    source_owner_employee_id: str | None
+    source_owner_channel_partner_id: str | None
+    handling_employee_id: str | None
+    source: str
+    status: str
+    attribution_status: str
+    locked_at: datetime
+    expires_at: datetime
+    created_at: datetime
+    updated_at: datetime
+
+
 class LeadResponse(BaseModel):
     id: str
     name: str
@@ -16,6 +33,7 @@ class LeadResponse(BaseModel):
     latest_visit_at: datetime | None
     created_at: datetime
     updated_at: datetime
+    opportunities: list[OpportunityInLeadResponse] = Field(default_factory=list)
 
 
 class LogFollowUpRequest(BaseModel):

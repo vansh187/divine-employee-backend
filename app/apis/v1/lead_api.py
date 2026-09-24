@@ -13,6 +13,7 @@ from app.core.responses import PaginatedResponse, PaginationMeta, SuccessRespons
 from app.persistence.follow_up_persistence import FollowUpPersistence
 from app.persistence.lead_persistence import LeadPersistence
 from app.persistence.lock_persistence import LockPersistence
+from app.persistence.opportunity_persistence import OpportunityPersistence
 from app.schemas.lead_schema import ActiveLockResponse, FollowUpActionResponse, LeadResponse, LogFollowUpRequest
 from app.service.lead_service import LeadService
 
@@ -22,7 +23,15 @@ router = APIRouter(prefix="/leads", tags=["Leads"], dependencies=[Depends(enforc
 
 
 def get_lead_service(db: DatabaseDep, business_clock: BusinessClockDep, settings: SettingsDep) -> LeadService:
-    return LeadService(db, LeadPersistence(db), LockPersistence(db), FollowUpPersistence(db), business_clock, settings)
+    return LeadService(
+        db,
+        LeadPersistence(db),
+        LockPersistence(db),
+        FollowUpPersistence(db),
+        OpportunityPersistence(db),
+        business_clock,
+        settings,
+    )
 
 
 LeadServiceDep = Annotated[LeadService, Depends(get_lead_service)]
