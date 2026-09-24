@@ -35,6 +35,10 @@ class OpportunityClaimResponse(BaseModel):
     submitted_at: datetime
 
 
+class UpdateOpportunityStatusRequest(BaseModel):
+    status: str = Field(pattern="^(CONVERTED|LOST|RELEASED)$")
+
+
 class ResolveConflictRequest(BaseModel):
     resolved_source_owner_type: str = Field(pattern="^(EMPLOYEE|CHANNEL_PARTNER)$")
     resolved_source_owner_employee_id: str | None = None

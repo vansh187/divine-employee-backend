@@ -16,7 +16,12 @@ from app.core.exceptions import AppError
 from app.core.rate_limit import enforce_rate_limit
 from app.core.responses import PaginatedResponse, SuccessResponse
 from app.persistence.opportunity_persistence import OpportunityPersistence
-from app.schemas.opportunity_schema import OpportunityClaimResponse, OpportunityResponse, ResolveConflictRequest
+from app.schemas.opportunity_schema import (
+    OpportunityClaimResponse,
+    OpportunityResponse,
+    ResolveConflictRequest,
+    UpdateOpportunityStatusRequest,
+)
 from app.service.notification_service import NotificationService
 from app.persistence.notification_persistence import NotificationPersistence
 from app.service.opportunity_service import OpportunityService
@@ -84,6 +89,25 @@ async def list_opportunity_claims(
         raise
     except Exception:
         logger.exception("Unexpected error listing opportunity claims")
+        raise
+
+
+@router.post("/{opportunity_id}/status", response_model=SuccessResponse[OpportunityResponse])
+async def update_opportunity_status(
+    opportunity_id: UUID,
+    payload: UpdateOpportunityStatusRequest,
+    current_employee: CurrentEmployeeDep,
+    opportunity_service: OpportunityServiceDep,
+) -> SuccessResponse[OpportunityResponse]:
+    try:
+        result = await opportunity_service.update_status(
+            current_employee.employee_id, str(opportunity_id), payload.status
+        )
+        return SuccessResponse(data=result, message="Opportunity status updated")
+    except AppError:
+        raise
+    except Exception:
+        logger.exception("Unexpected error updating opportunity status")
         raise
 
 

@@ -127,6 +127,23 @@ class LockPersistence:
         async with self._db.acquire() as conn:
             await conn.execute(query, lead_lock_id, new_expires_at)
 
+    async def release_property_lock_for_lead(self, lead_id: str, property_id: str, connection: Any) -> None:
+        """Frees a plot held for `lead_id`; a DEAL_LOCKED or SOLD plot is never downgraded."""
+        await connection.execute(
+            """
+            WITH released AS (
+                UPDATE property_locks pl SET status = 'RELEASED'
+                FROM lead_locks ll
+                WHERE pl.lead_lock_id = ll.id AND ll.lead_id = $1 AND pl.property_id = $2 AND pl.status = 'ACTIVE'
+                RETURNING pl.property_id
+            )
+            UPDATE properties SET status = 'AVAILABLE'
+            WHERE id IN (SELECT property_id FROM released) AND status = 'LOCKED'
+            """,
+            lead_id,
+            property_id,
+        )
+
     async def release_expired_locks(self) -> tuple[int, int]:
         """Server-side sweep: expire locks past `expires_at`. Called by a scheduled job/endpoint.
 
