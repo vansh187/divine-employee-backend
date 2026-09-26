@@ -229,7 +229,7 @@ def test_dropdown_labels_normalise(label: str, expected: str) -> None:
     assert UpdateOpportunityStatusRequest(status=label).status == expected
 
 
-@pytest.mark.parametrize("bad", ["", "EXPIRED", "Deal Maybe", None, 5])
+@pytest.mark.parametrize("bad", ["", "EXPIRED", "NEW", "new", "ACTIVE", "Deal Maybe", None, 5])
 def test_unknown_labels_are_rejected(bad: object) -> None:
     from pydantic import ValidationError
 
