@@ -162,3 +162,28 @@ class SiteVisitPersistence:
                 target_date,
             )
         return int(value)
+
+    async def get_hold_state(self, site_visit_id: str) -> dict[str, Any]:
+        """Re-derive how a stored visit was recorded (waitlisted / lead held by another employee), for
+        idempotent retries. A held visit has no opportunity claim; waitlisted ones have a waitlist row."""
+        async with self._db.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                SELECT EXISTS (SELECT 1 FROM plot_waitlist w WHERE w.site_visit_id = sv.id) AS waitlisted,
+                       NOT EXISTS (SELECT 1 FROM plot_waitlist w WHERE w.site_visit_id = sv.id)
+                       AND NOT EXISTS (SELECT 1 FROM opportunity_claims oc WHERE oc.evidence_site_visit_id = sv.id)
+                           AS lead_held,
+                       (SELECT pl.expires_at FROM property_locks pl
+                        WHERE pl.property_id = sv.property_id AND pl.status = 'ACTIVE' AND pl.expires_at > now()
+                        LIMIT 1) AS plot_held_until,
+                       (SELECT ll.expires_at FROM lead_locks ll
+                        WHERE ll.lead_id = sv.lead_id AND ll.status = 'ACTIVE' AND ll.expires_at > now()
+                        LIMIT 1) AS lead_held_until
+                FROM site_visits sv WHERE sv.id = $1
+                """,
+                site_visit_id,
+            )
+        if row is None:
+            return {"waitlisted": False, "lead_held": False, "held_until": None}
+        held_until = row["plot_held_until"] if row["waitlisted"] else row["lead_held_until"] if row["lead_held"] else None
+        return {"waitlisted": row["waitlisted"], "lead_held": row["lead_held"], "held_until": held_until}

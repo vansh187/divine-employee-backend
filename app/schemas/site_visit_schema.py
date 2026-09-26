@@ -79,3 +79,8 @@ class SiteVisitResponse(BaseModel):
     # Historical visits keep the opportunity linked by their claim evidence.
     opportunity: OpportunityResponse | None = None
     can_update_opportunity: bool = False
+    # Set on the create response when the lead/plot is held by another employee: the visit is
+    # saved, but takes no lock and creates no opportunity.
+    lead_held: bool = False
+    waitlisted: bool = False
+    held_until: datetime | None = None

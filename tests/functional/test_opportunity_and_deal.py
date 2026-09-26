@@ -103,7 +103,7 @@ async def test_channel_partner_source_survives_employee_handling(client, make_em
     items = opportunities.json()["data"]
     assert len(items) == 1
     assert items[0]["source_owner_type"] == "CHANNEL_PARTNER"
-    assert items[0]["status"] == "NEW"
+    assert items[0]["status"] == "ACTIVE"
     assert items[0]["handling_employee_id"] == str(employee["id"])
 
 

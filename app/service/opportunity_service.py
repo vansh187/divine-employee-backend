@@ -23,7 +23,7 @@ and requirement §13/§16.13 for the open-decision list:
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 import asyncpg
 
@@ -206,6 +206,18 @@ class OpportunityService:
                 ):
                     raise ConflictError(
                         "OPPORTUNITY_NOT_ACTIVE", "Only an open, unexpired opportunity can be updated"
+                    )
+                if new_status == "DEAL_IN_PROGRESS":
+                    # A booking in progress must outlive the 3-day protection, or the sweeper frees the plot.
+                    extended_until = datetime.now(timezone.utc) + timedelta(
+                        days=self._settings.deal_in_progress_duration_days
+                    )
+                    await self._opportunity_persistence.renew(opportunity_id, extended_until, connection=conn)
+                    await self._lock_persistence.extend_locks_for_lead(
+                        str(row["lead_id"]),
+                        str(row["property_id"]) if row["property_id"] is not None else None,
+                        extended_until,
+                        connection=conn,
                     )
                 if new_status in ("LOST", "RELEASED", "DEAL_REJECTED") and row["property_id"] is not None:
                     await self._lock_persistence.release_property_lock_for_lead(

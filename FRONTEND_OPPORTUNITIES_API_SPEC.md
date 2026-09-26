@@ -2,6 +2,14 @@
 
 ## Site visit to opportunity display
 
+### Plot or lead held by another employee
+`POST /api/v1/site-visits` no longer fails with `PROPERTY_LOCKED` / `LEAD_LOCKED`. The visit is always saved (200), and the response tells you what happened:
+- `waitlisted: true`: the plot is held by another employee. The visit and lead are saved and the lead is protected for the visiting employee (follow-ups work), but there is no plot lock and no opportunity (`opportunity: null`). `held_until` is when the current hold ends. The customer joins the plot's waitlist and the holder is notified.
+- `lead_held: true`: the lead is locked to another employee. The visit is saved only (no lock, no opportunity); the lead stays with its owner, who is notified.
+- Otherwise both flags are `false` and the flow is unchanged (locks taken, `NEW` opportunity created or renewed).
+- When the holder's plot is freed (opportunity `LOST` / `RELEASED` / `DEAL_REJECTED` or protection expiry), the oldest waiting employee gets a `PROPERTY_LOCK_RELEASED` notification and takes the plot by logging a new site visit.
+- `DEAL_IN_PROGRESS` keeps the opportunity, lead lock and plot lock for 15 days instead of 3. Follow-ups and revisits never shorten a longer hold.
+
 - `POST /api/v1/site-visits` saves the visit, lead/property locks, and opportunity claim in one transaction. A newly created opportunity has status `NEW`.
 - Create, list (`GET /api/v1/site-visits`), and detail (`GET /api/v1/site-visits/{id}`) responses now include `opportunity` (the full opportunity object) and `can_update_opportunity` (boolean) on each visit. Existing visits get these fields too, without recreating them.
 - The association follows `opportunity_claims.evidence_site_visit_id`. Repeat visits can share an opportunity; an older visit retains its original opportunity even if a later visit creates another one. Project-only visits are supported.

@@ -95,7 +95,7 @@ class OpportunityPersistence:
 
     async def renew(self, opportunity_id: str, expires_at: datetime, connection: Any) -> None:
         await connection.execute(
-            "UPDATE opportunities SET expires_at = $2 WHERE id = $1", opportunity_id, expires_at
+            "UPDATE opportunities SET expires_at = GREATEST(expires_at, $2) WHERE id = $1", opportunity_id, expires_at
         )
 
     async def set_handling_employee(self, opportunity_id: str, handling_employee_id: str, connection: Any) -> None:
