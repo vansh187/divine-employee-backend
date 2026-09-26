@@ -1,5 +1,18 @@
 # Lead Detail View - Opportunities API Specification
 
+## Site visit to opportunity display
+
+- `POST /api/v1/site-visits` saves the visit, lead/property locks, and opportunity claim in one transaction. A newly created opportunity has status `NEW`.
+- Create, list (`GET /api/v1/site-visits`), and detail (`GET /api/v1/site-visits/{id}`) responses now include `opportunity` (the full opportunity object) and `can_update_opportunity` (boolean) on each visit. Existing visits get these fields too, without recreating them.
+- The association follows `opportunity_claims.evidence_site_visit_id`. Repeat visits can share an opportunity; an older visit retains its original opportunity even if a later visit creates another one. Project-only visits are supported.
+- Display the opportunity card for each visit, including closed/expired records. Enable the status action only when `can_update_opportunity` is true, and submit `opportunity.id` to `POST /api/v1/opportunities/{id}/status`. Refresh the visit list, lead detail, dashboard, and inventory after the action.
+- `can_update_opportunity` requires an open, unexpired opportunity owned or handled by the employee. The update API still enforces permissions and transitions. `opportunity: null` means there is no linked opportunity visible to that employee; show a fallback instead of throwing or creating an opportunity during a read.
+- After saving, use the returned `data.lead_id` to call `GET /api/v1/leads/{lead_id}` and render `data.opportunities`.
+- `GET /api/v1/leads/active-locks` returns lock information, not opportunities. Its `lead_lock_id` is not an opportunity ID.
+- For a single opportunity, use `GET /api/v1/opportunities/{opportunity_id}` with an ID from `data.opportunities[].id`. The employee opportunity list is `GET /api/v1/opportunities`.
+- Frontend status types, labels, and open-status controls must include `NEW`. Guard unknown status labels before calling string methods; an unfamiliar status should render a fallback with editing disabled.
+- The "Opportunities couldn't load" widget message can indicate a React rendering exception even when the API succeeds. The missing `NEW` label previously caused `undefined.toLowerCase()` in the opportunity card.
+
 ## Endpoint
 
 ```
@@ -166,8 +179,8 @@ flowchart TD
 ```
 
 Frontend rules:
-- Show `status` and `attribution_status` as read-only badges, never editable controls.
-- `ACTIVE`: show countdown to `expires_at`. `ATTRIBUTION_CONFLICT`: show "under review". `CONVERTED`: link to the deal. `EXPIRED`: greyed out.
+- Show `status` and `attribution_status` as badges. Offer the separate status dropdown for open statuses as described above; attribution is read-only.
+- `NEW`, `INTERESTED`, `DEAL_IN_PROGRESS`, legacy `ACTIVE`: show countdown to `expires_at`. `ATTRIBUTION_CONFLICT`: show "under review". `CONVERTED`: link to the deal. `EXPIRED`: greyed out.
 - Employees change status with `POST /opportunities/{id}/status` (or `POST /api/v1/deals`, which also moves it to `CONVERTED`).
 
 ---

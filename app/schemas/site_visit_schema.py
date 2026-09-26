@@ -6,6 +6,7 @@ from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, EmailStr, Field, field_validator
+from app.schemas.opportunity_schema import OpportunityResponse
 
 # Mirrors the `site_visit_outcome` Postgres enum — anything else is a 422, not a DB error.
 SiteVisitOutcome = Literal["INTERESTED", "NOT_INTERESTED", "FOLLOW_UP_REQUIRED", "PROPOSAL_REQUESTED", "NO_SHOW", "OTHER"]
@@ -75,3 +76,6 @@ class SiteVisitResponse(BaseModel):
     plot_no: str | None = None
     created_at: datetime
     updated_at: datetime
+    # Historical visits keep the opportunity linked by their claim evidence.
+    opportunity: OpportunityResponse | None = None
+    can_update_opportunity: bool = False

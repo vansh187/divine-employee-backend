@@ -6,6 +6,21 @@ from typing import Any
 from app.persistence.db_persistence import Database
 
 
+# Follow the immutable visit claim, not the newest opportunity for the lead:
+# repeat visits may share one opportunity, and later visits may create a new one.
+_OPPORTUNITY_JOIN = """
+    LEFT JOIN LATERAL (
+        SELECT to_jsonb(o) AS opportunity
+        FROM opportunity_claims oc
+        JOIN opportunities o ON o.id = oc.opportunity_id
+        WHERE oc.evidence_site_visit_id = sv.id
+          AND (o.source_owner_employee_id = sv.employee_id OR o.handling_employee_id = sv.employee_id)
+        ORDER BY oc.submitted_at DESC, oc.id DESC
+        LIMIT 1
+    ) linked ON TRUE
+"""
+
+
 class SiteVisitPersistence:
     def __init__(self, db: Database) -> None:
         self._db = db
@@ -78,15 +93,16 @@ class SiteVisitPersistence:
     async def get_by_id(self, site_visit_id: str) -> dict[str, Any] | None:
         async with self._db.acquire() as conn:
             row = await conn.fetchrow(
-                """
+                f"""
                 SELECT sv.id, sv.employee_id, sv.lead_id, sv.visitor_name, sv.visitor_phone, sv.visitor_email,
                        sv.project_id, sv.property_id, sv.visit_at,
                        sv.notes, sv.attachments, sv.outcome, sv.created_at, sv.updated_at,
-                       l.name AS lead_name, pr.name AS project_name, p.plot_no
+                       l.name AS lead_name, pr.name AS project_name, p.plot_no, linked.opportunity
                 FROM site_visits sv
                 JOIN leads l ON l.id = sv.lead_id
                 JOIN projects pr ON pr.id = sv.project_id
                 LEFT JOIN properties p ON p.id = sv.property_id
+                {_OPPORTUNITY_JOIN}
                 WHERE sv.id = $1
                 """,
                 site_visit_id,
@@ -99,15 +115,16 @@ class SiteVisitPersistence:
         offset = (page - 1) * page_size
         async with self._db.acquire() as conn:
             rows = await conn.fetch(
-                """
+                f"""
                 SELECT sv.id, sv.employee_id, sv.lead_id, sv.visitor_name, sv.visitor_phone, sv.visitor_email,
                        sv.project_id, sv.property_id, sv.visit_at,
                        sv.notes, sv.attachments, sv.outcome, sv.created_at, sv.updated_at,
-                       l.name AS lead_name, pr.name AS project_name, p.plot_no
+                       l.name AS lead_name, pr.name AS project_name, p.plot_no, linked.opportunity
                 FROM site_visits sv
                 JOIN leads l ON l.id = sv.lead_id
                 JOIN projects pr ON pr.id = sv.project_id
                 LEFT JOIN properties p ON p.id = sv.property_id
+                {_OPPORTUNITY_JOIN}
                 WHERE sv.employee_id = $1
                 ORDER BY sv.visit_at DESC
                 LIMIT $2 OFFSET $3
