@@ -164,5 +164,5 @@ async def test_opportunity_expiry_ignores_backdated_visit_at(client, make_employ
 
     await _log_visit(client, headers, place, "9833300008", visit_at=_visit_at(days_offset=-10))
     opportunity = (await client.get("/api/v1/opportunities", headers=headers)).json()["data"][0]
-    assert opportunity["status"] == "ACTIVE"
+    assert opportunity["status"] == "NEW"
     assert date.fromisoformat(opportunity["expires_at"][:10]) >= date.today()

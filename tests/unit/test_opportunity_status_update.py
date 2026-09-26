@@ -27,7 +27,7 @@ def make_row(**overrides: Any) -> dict[str, Any]:
         "source_owner_channel_partner_id": None,
         "handling_employee_id": HANDLER,
         "source": "EMPLOYEE_SITE_VISIT",
-        "status": "ACTIVE",
+        "status": "NEW",
         "attribution_status": "VERIFIED",
         "locked_at": NOW,
         "expires_at": NOW,
@@ -90,6 +90,14 @@ class FakeLocks:
         self.released.append((lead_id, property_id))
 
 
+class FakeLeads:
+    def __init__(self) -> None:
+        self.converted: list[str] = []
+
+    async def mark_converted(self, lead_id: str) -> None:
+        self.converted.append(lead_id)
+
+
 PLOT_ID = "77777777-7777-7777-7777-777777777777"
 
 
@@ -102,6 +110,7 @@ def build_service(
     deal_service = FakeDealService(persistence)
     service._deal_service = deal_service  # type: ignore[assignment]
     service._lock_persistence = FakeLocks()  # type: ignore[assignment]
+    service._lead_persistence = FakeLeads()  # type: ignore[assignment]
     return service, persistence, notifications, deal_service
 
 
@@ -132,7 +141,7 @@ async def test_converted_without_plot_only_flips_status() -> None:
     assert {n["event_type"] for n in notifications.emitted} == {"OPPORTUNITY_RESOLVED"}
 
 
-@pytest.mark.parametrize("status", ["LOST", "RELEASED"])
+@pytest.mark.parametrize("status", ["LOST", "RELEASED", "DEAL_REJECTED"])
 async def test_lost_or_released_with_plot_frees_the_plot_lock(status: str) -> None:
     service, _, _, _ = build_service(make_row(property_id=PLOT_ID))
     await service.update_status(OWNER, OPP_ID, status)
@@ -198,3 +207,91 @@ async def test_notification_failure_does_not_fail_the_request() -> None:
     service, _, _, _ = build_service(make_row(), notify_fails=True)
     result = await service.update_status(OWNER, OPP_ID, "LOST")
     assert result.status == "LOST"
+
+
+@pytest.mark.parametrize(
+    ("label", "expected"),
+    [
+        ("Deal In Progress", "DEAL_IN_PROGRESS"),
+        ("Interested", "INTERESTED"),
+        ("Deal Complete", "CONVERTED"),
+        ("Deal Rejected", "DEAL_REJECTED"),
+        ("Lost", "LOST"),
+        ("Release Lock", "RELEASED"),
+        ("  release-lock ", "RELEASED"),
+        ("CONVERTED", "CONVERTED"),
+        ("released", "RELEASED"),
+    ],
+)
+def test_dropdown_labels_normalise(label: str, expected: str) -> None:
+    from app.schemas.opportunity_schema import UpdateOpportunityStatusRequest
+
+    assert UpdateOpportunityStatusRequest(status=label).status == expected
+
+
+@pytest.mark.parametrize("bad", ["", "EXPIRED", "NEW", "new", "ACTIVE", "Deal Maybe", None, 5])
+def test_unknown_labels_are_rejected(bad: object) -> None:
+    from pydantic import ValidationError
+
+    from app.schemas.opportunity_schema import UpdateOpportunityStatusRequest
+
+    with pytest.raises(ValidationError):
+        UpdateOpportunityStatusRequest(status=bad)  # type: ignore[arg-type]
+
+
+async def test_interested_moves_new_to_interested_then_is_idempotent() -> None:
+    service, persistence, notifications, _ = build_service(make_row())
+    result = await service.update_status(OWNER, OPP_ID, "INTERESTED")
+    assert result.status == "INTERESTED"
+    assert persistence.set_calls == ["INTERESTED"]
+    again = await service.update_status(OWNER, OPP_ID, "INTERESTED")
+    assert again.status == "INTERESTED"
+    assert persistence.set_calls == ["INTERESTED"]
+
+
+async def test_interested_opportunity_can_then_be_lost() -> None:
+    service, _, _, _ = build_service(make_row(status="INTERESTED"))
+    assert (await service.update_status(OWNER, OPP_ID, "LOST")).status == "LOST"
+
+
+@pytest.mark.parametrize("plot", [PLOT_ID, None])
+async def test_converted_marks_lead_as_customer(plot: str | None) -> None:
+    service, _, _, _ = build_service(make_row(property_id=plot, status="INTERESTED"))
+    await service.update_status(OWNER, OPP_ID, "CONVERTED")
+    assert service._lead_persistence.converted == [make_row()["lead_id"]]  # type: ignore[attr-defined]
+
+
+async def test_lost_does_not_mark_lead_converted() -> None:
+    service, _, _, _ = build_service(make_row())
+    await service.update_status(OWNER, OPP_ID, "LOST")
+    assert service._lead_persistence.converted == []  # type: ignore[attr-defined]
+
+
+async def test_pipeline_moves_forward_and_marks_lead_customer() -> None:
+    service, persistence, _, _ = build_service(make_row())
+    assert (await service.update_status(OWNER, OPP_ID, "INTERESTED")).status == "INTERESTED"
+    assert service._lead_persistence.converted == [make_row()["lead_id"]]  # type: ignore[attr-defined]
+    assert (await service.update_status(OWNER, OPP_ID, "DEAL_IN_PROGRESS")).status == "DEAL_IN_PROGRESS"
+    assert (await service.update_status(OWNER, OPP_ID, "DEAL_REJECTED")).status == "DEAL_REJECTED"
+    assert persistence.set_calls == ["INTERESTED", "DEAL_IN_PROGRESS", "DEAL_REJECTED"]
+
+
+async def test_cannot_move_backwards() -> None:
+    service, persistence, _, _ = build_service(make_row(status="DEAL_IN_PROGRESS"))
+    with pytest.raises(ConflictError) as exc_info:
+        await service.update_status(OWNER, OPP_ID, "INTERESTED")
+    assert exc_info.value.code == "INVALID_STATUS_TRANSITION"
+    assert persistence.set_calls == []
+
+
+@pytest.mark.parametrize("status", ["LOST", "RELEASED"])
+async def test_lost_and_release_are_independent_exits(status: str) -> None:
+    for current in ("NEW", "INTERESTED", "DEAL_IN_PROGRESS"):
+        service, _, _, _ = build_service(make_row(status=current))
+        assert (await service.update_status(OWNER, OPP_ID, status)).status == status
+
+
+async def test_rejected_or_lost_never_marks_lead_customer() -> None:
+    service, _, _, _ = build_service(make_row())
+    await service.update_status(OWNER, OPP_ID, "DEAL_REJECTED")
+    assert service._lead_persistence.converted == []  # type: ignore[attr-defined]

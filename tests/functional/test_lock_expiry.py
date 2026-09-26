@@ -62,7 +62,7 @@ async def test_lapsed_locks_do_not_block_without_a_sweep(client, make_employee, 
 
     opportunities = (await client.get("/api/v1/opportunities", headers=headers_2)).json()["data"]
     assert len(opportunities) == 1
-    assert opportunities[0]["status"] == "ACTIVE"
+    assert opportunities[0]["status"] == "NEW"
     assert opportunities[0]["source_owner_employee_id"] == str(employee_2["id"])
 
     # The first employee no longer sees the lapsed lock as theirs.

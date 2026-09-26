@@ -129,7 +129,7 @@ async def test_other_employee_is_forbidden(client, make_employee, make_project_a
     assert response.status_code == 403
 
     still_active = await client.get(f"/api/v1/opportunities/{opportunity['id']}", headers=owner_headers)
-    assert still_active.json()["data"]["status"] == "ACTIVE"
+    assert still_active.json()["data"]["status"] == "NEW"
 
 
 async def test_expired_opportunity_cannot_be_updated(client, make_employee, make_project_and_plot, raw_conn):
@@ -146,6 +146,33 @@ async def test_expired_opportunity_cannot_be_updated(client, make_employee, make
     assert response.json()["error"]["code"] == "OPPORTUNITY_NOT_ACTIVE"
 
 
+async def test_ui_dropdown_labels_are_accepted(client, make_employee, make_project_and_plot):
+    employee = await make_employee()
+    place = await make_project_and_plot()
+    headers = await auth_headers(client, employee["email"], employee["password"])
+    opportunity = await _log_visit(client, headers, place, _phone())
+    url = f"/api/v1/opportunities/{opportunity['id']}/status"
+
+    in_progress = await client.post(url, headers=headers, json={"status": "Deal In Progress"})
+    assert in_progress.status_code == 200, in_progress.text
+    assert in_progress.json()["data"]["status"] == "DEAL_IN_PROGRESS"
+
+    rejected = await client.post(url, headers=headers, json={"status": "Deal Rejected"})
+    assert rejected.status_code == 200, rejected.text
+    assert rejected.json()["data"]["status"] == "DEAL_REJECTED"
+
+
+async def test_deal_complete_and_release_lock_labels(client, make_employee, make_project_and_plot):
+    employee = await make_employee()
+    headers = await auth_headers(client, employee["email"], employee["password"])
+    first = await _log_visit(client, headers, await make_project_and_plot(), _phone())
+    done = await client.post(
+        f"/api/v1/opportunities/{first['id']}/status", headers=headers, json={"status": "deal complete"}
+    )
+    assert done.status_code == 200, done.text
+    assert done.json()["data"]["status"] == "CONVERTED"
+
+
 async def test_invalid_status_unknown_id_and_missing_auth(client, make_employee, make_project_and_plot):
     employee = await make_employee()
     place = await make_project_and_plot()
@@ -153,7 +180,7 @@ async def test_invalid_status_unknown_id_and_missing_auth(client, make_employee,
     opportunity = await _log_visit(client, headers, place, _phone())
     url = f"/api/v1/opportunities/{opportunity['id']}/status"
 
-    for bad_status in ("EXPIRED", "ATTRIBUTION_CONFLICT", "ACTIVE", "lost", ""):
+    for bad_status in ("EXPIRED", "ATTRIBUTION_CONFLICT", "Deal Maybe", ""):
         response = await client.post(url, headers=headers, json={"status": bad_status})
         assert response.status_code == 422, (bad_status, response.text)
     assert (await client.post(url, headers=headers, json={})).status_code == 422
@@ -167,4 +194,4 @@ async def test_invalid_status_unknown_id_and_missing_auth(client, make_employee,
     assert (await client.post(url, json={"status": "LOST"})).status_code in (401, 403)
 
     unchanged = await client.get(f"/api/v1/opportunities/{opportunity['id']}", headers=headers)
-    assert unchanged.json()["data"]["status"] == "ACTIVE"
+    assert unchanged.json()["data"]["status"] == "NEW"

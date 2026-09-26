@@ -12,6 +12,7 @@ from app.persistence.deal_persistence import DealPersistence
 from app.persistence.opportunity_persistence import OpportunityPersistence
 from app.persistence.property_persistence import PropertyPersistence
 from app.schemas.deal_schema import DealResponse
+from app.schemas.opportunity_schema import OPEN_STATUSES
 
 
 class DealService:
@@ -35,8 +36,8 @@ class DealService:
         # employee may convert (and thereby deal-lock the plot).
         if employee_id not in (opportunity["source_owner_employee_id"], opportunity["handling_employee_id"]):
             raise ForbiddenError("You are not the source owner or handling employee for this opportunity")
-        if opportunity["status"] != "ACTIVE":
-            raise ConflictError("OPPORTUNITY_NOT_ACTIVE", "Only an ACTIVE opportunity can be converted to a deal")
+        if opportunity["status"] not in OPEN_STATUSES:
+            raise ConflictError("OPPORTUNITY_NOT_ACTIVE", "Only an open opportunity can be converted to a deal")
         if not opportunity["property_id"]:
             raise ValidationFailedError("A deal requires an opportunity tied to a specific property/plot")
 

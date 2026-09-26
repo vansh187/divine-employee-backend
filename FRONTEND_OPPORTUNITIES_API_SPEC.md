@@ -93,7 +93,7 @@ curl -X GET "http://localhost:8000/api/v1/leads/550e8400-e29b-41d4-a716-44665544
 | **source_owner_channel_partner_id** | UUID string | Yes | Channel partner owner ID (null if owner is employee) |
 | **handling_employee_id** | UUID string | Yes | Employee currently handling the opportunity |
 | **source** | string enum | No | How created: `EMPLOYEE_SITE_VISIT`, `CHANNEL_PARTNER` |
-| **status** | string enum | No | Current status: `ACTIVE`, `CONVERTED`, `EXPIRED`, `LOST`, `ATTRIBUTION_CONFLICT`, `RELEASED` |
+| **status** | string enum | No | Current status: `NEW`, `INTERESTED`, `DEAL_IN_PROGRESS`, `DEAL_REJECTED`, `ACTIVE`, `CONVERTED`, `EXPIRED`, `LOST`, `ATTRIBUTION_CONFLICT`, `RELEASED` |
 | **attribution_status** | string enum | No | Attribution status: `VERIFIED`, `CONFLICT`, `RESOLVED` |
 | **locked_at** | ISO 8601 datetime | No | When opportunity was created/locked |
 | **expires_at** | ISO 8601 datetime | No | When 3-day protection period expires |
@@ -105,49 +105,56 @@ curl -X GET "http://localhost:8000/api/v1/leads/550e8400-e29b-41d4-a716-44665544
 ## Status Values Explained
 
 ### `status` field
-- **ACTIVE**: Opportunity is live and protected
-- **CONVERTED**: Lead converted to a deal
-- **EXPIRED**: Protection period ended without conversion
+- **NEW**: Starting status of every opportunity (protected, 3-day expiry)
+- **INTERESTED**: Employee marked the lead interested; the lead is now treated as a customer
+- **DEAL_IN_PROGRESS**: Customer is on the booking table
+- **CONVERTED**: Deal complete (deal created, plot deal-locked)
+- **DEAL_REJECTED**: Deal fell through after being in progress
 - **LOST**: Lead explicitly marked as lost
-- **ATTRIBUTION_CONFLICT**: Multiple employees claimed same lead/plot (requires resolution)
-- **RELEASED**: Lock was released before expiry
-
-### `attribution_status` field
-- **VERIFIED**: Single source owner, no conflicts
-- **CONFLICT**: Multiple claimants for same lead/plot
-- **RESOLVED**: Conflict was manually resolved
-
-### `source_owner_type` field
-- **EMPLOYEE**: Employee owns the opportunity
-- **CHANNEL_PARTNER**: Channel partner owns the opportunity
-
----
+- **RELEASED**: Lock was released by the employee
+- **EXPIRED**: 3-day protection ended (system only)
+- **ATTRIBUTION_CONFLICT**: Multiple sources claimed the same lead/plot (system only, needs back office)
+- **ACTIVE**: Legacy starting status of older opportunities; treated like `NEW`
 
 ## Update Opportunity Status
 
 ```
 POST /api/v1/opportunities/{opportunity_id}/status
 Authorization: Bearer <access_token>
-{ "status": "CONVERTED" | "LOST" | "RELEASED" }
+{ "status": "INTERESTED" | "DEAL_IN_PROGRESS" | "CONVERTED" | "DEAL_REJECTED" | "LOST" | "RELEASED" }
 ```
 
-- Allowed only while the opportunity is `ACTIVE` and unexpired, and only for its source owner or handling employee.
+| Dropdown label | Send |
+|---|---|
+| Interested | `INTERESTED` |
+| Deal In Progress | `DEAL_IN_PROGRESS` |
+| Deal Complete | `CONVERTED` (`DEAL_CLOSED` also accepted) |
+| Deal Rejected | `DEAL_REJECTED` |
+| Lost | `LOST` |
+| Release Lock | `RELEASED` |
+
+Matching ignores case, spaces, hyphens and underscores, so the label text also works.
+
+- Allowed only while the opportunity is open (`NEW`, `INTERESTED`, `DEAL_IN_PROGRESS`, legacy `ACTIVE`) and unexpired, and only for its source owner or handling employee. Show the dropdown only in those statuses.
+- Pipeline is forward-only: `NEW -> INTERESTED -> DEAL_IN_PROGRESS`. Going back returns 409 `INVALID_STATUS_TRANSITION`. Re-sending the current status is a no-op.
+- `CONVERTED`, `DEAL_REJECTED`, `LOST` and `RELEASED` can be chosen from any open status.
+- `INTERESTED`, `DEAL_IN_PROGRESS` and `CONVERTED` set the lead's `lifecycle_status` to `CONVERTED` (lead is a customer).
 - `CONVERTED` on an opportunity with a plot creates the deal and deal-locks the plot. Without a plot, only the status changes.
-- `LOST` / `RELEASED` on an opportunity with a plot frees the plot lock (plot returns to `AVAILABLE`).
+- `DEAL_REJECTED` / `LOST` / `RELEASED` on an opportunity with a plot frees the plot lock (plot returns to `AVAILABLE`).
 - Source owner and handling employee are both notified (`entity_type: "OPPORTUNITY"`).
 - Returns `{"success": true, "data": <opportunity>, "message": "Opportunity status updated"}`.
-- Errors: 401 `UNAUTHORIZED`, 403 `FORBIDDEN`, 404 `NOT_FOUND`, 409 `OPPORTUNITY_NOT_ACTIVE` or `DEAL_LOCKED`, 422 `VALIDATION_FAILED` (status missing or not one of the three values).
+- Errors: 401 `UNAUTHORIZED`, 403 `FORBIDDEN`, 404 `NOT_FOUND`, 409 `OPPORTUNITY_NOT_ACTIVE`, `INVALID_STATUS_TRANSITION` or `DEAL_LOCKED`, 422 `VALIDATION_FAILED` (status missing or unrecognised).
 
 ## Opportunity Status Lifecycle
 
-`EXPIRED` and `ATTRIBUTION_CONFLICT` are set by the system only. Employees can set `CONVERTED`, `LOST` and `RELEASED` via the endpoint above.
+`EXPIRED` and `ATTRIBUTION_CONFLICT` are set by the system only. Employees set the other statuses via the endpoint above. The 3-day expiry applies to every open status.
 
 ```mermaid
 flowchart TD
     A[Employee logs site visit<br/>POST /api/v1/site-visits] --> B{Active opportunity exists<br/>for this lead + plot?}
-    B -- No --> C[Create opportunity<br/>status ACTIVE, attribution VERIFIED<br/>expires_at = now + 3 days]
-    B -- "Yes, same employee owns it" --> D[Renew expires_at<br/>stays ACTIVE]
-    B -- "Yes, owned by Channel Partner" --> E[Employee becomes handling_employee<br/>owner unchanged, stays ACTIVE]
+    B -- No --> C[Create opportunity<br/>status NEW, attribution VERIFIED<br/>expires_at = now + 3 days]
+    B -- "Yes, same employee owns it" --> D[Renew expires_at<br/>stays open]
+    B -- "Yes, owned by Channel Partner" --> E[Employee becomes handling_employee<br/>owner unchanged, stays open]
     B -- "Yes, different employee owns it" --> F[ATTRIBUTION_CONFLICT<br/>attribution CONFLICT<br/>notification sent]
     C --> G{What happens next?}
     D --> G
@@ -161,8 +168,7 @@ flowchart TD
 Frontend rules:
 - Show `status` and `attribution_status` as read-only badges, never editable controls.
 - `ACTIVE`: show countdown to `expires_at`. `ATTRIBUTION_CONFLICT`: show "under review". `CONVERTED`: link to the deal. `EXPIRED`: greyed out.
-- `LOST` and `RELEASED` exist in the enum but nothing sets them yet; the UI can ignore them.
-- The only employee action that changes an opportunity is `POST /api/v1/deals` (moves it to `CONVERTED`).
+- Employees change status with `POST /opportunities/{id}/status` (or `POST /api/v1/deals`, which also moves it to `CONVERTED`).
 
 ---
 
@@ -313,7 +319,7 @@ interface Opportunity {
   source_owner_channel_partner_id: string | null;
   handling_employee_id: string | null;
   source: string;
-  status: 'ACTIVE' | 'CONVERTED' | 'EXPIRED' | 'LOST' | 'ATTRIBUTION_CONFLICT' | 'RELEASED';
+  status: 'NEW' | 'INTERESTED' | 'DEAL_IN_PROGRESS' | 'DEAL_REJECTED' | 'ACTIVE' | 'CONVERTED' | 'EXPIRED' | 'LOST' | 'ATTRIBUTION_CONFLICT' | 'RELEASED';
   attribution_status: 'VERIFIED' | 'CONFLICT' | 'RESOLVED';
   locked_at: string;
   expires_at: string;

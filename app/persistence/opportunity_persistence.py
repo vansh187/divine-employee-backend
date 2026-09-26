@@ -18,7 +18,7 @@ class OpportunityPersistence:
         await connection.execute(
             """
             UPDATE opportunities SET status = 'EXPIRED'
-            WHERE lead_id = $1 AND property_id = $2 AND status = 'ACTIVE' AND expires_at <= now()
+            WHERE lead_id = $1 AND property_id = $2 AND status IN ('NEW', 'INTERESTED', 'DEAL_IN_PROGRESS', 'ACTIVE') AND expires_at <= now()
             """,
             lead_id,
             property_id,
@@ -29,7 +29,7 @@ class OpportunityPersistence:
                    source_owner_channel_partner_id, handling_employee_id, source, status,
                    attribution_status, locked_at, expires_at
             FROM opportunities
-            WHERE lead_id = $1 AND property_id = $2 AND status IN ('ACTIVE', 'ATTRIBUTION_CONFLICT')
+            WHERE lead_id = $1 AND property_id = $2 AND status IN ('NEW', 'INTERESTED', 'DEAL_IN_PROGRESS', 'ACTIVE', 'ATTRIBUTION_CONFLICT')
             FOR UPDATE
             """,
             lead_id,
@@ -44,7 +44,7 @@ class OpportunityPersistence:
             """
             UPDATE opportunities SET status = 'EXPIRED'
             WHERE lead_id = $1 AND project_id = $2 AND property_id IS NULL
-              AND status = 'ACTIVE' AND expires_at <= now()
+              AND status IN ('NEW', 'INTERESTED', 'DEAL_IN_PROGRESS', 'ACTIVE') AND expires_at <= now()
             """,
             lead_id,
             project_id,
@@ -55,7 +55,7 @@ class OpportunityPersistence:
                    source_owner_channel_partner_id, handling_employee_id, source, status,
                    attribution_status, locked_at, expires_at
             FROM opportunities
-            WHERE lead_id = $1 AND project_id = $2 AND property_id IS NULL AND status IN ('ACTIVE', 'ATTRIBUTION_CONFLICT')
+            WHERE lead_id = $1 AND project_id = $2 AND property_id IS NULL AND status IN ('NEW', 'INTERESTED', 'DEAL_IN_PROGRESS', 'ACTIVE', 'ATTRIBUTION_CONFLICT')
             FOR UPDATE
             """,
             lead_id,
@@ -79,7 +79,7 @@ class OpportunityPersistence:
                 lead_id, project_id, property_id, source_owner_type, source_owner_employee_id,
                 handling_employee_id, source, status, attribution_status, expires_at
             )
-            VALUES ($1, $2, $3, 'EMPLOYEE', $4, $5, 'EMPLOYEE_SITE_VISIT', 'ACTIVE', 'VERIFIED', $6)
+            VALUES ($1, $2, $3, 'EMPLOYEE', $4, $5, 'EMPLOYEE_SITE_VISIT', 'NEW', 'VERIFIED', $6)
             RETURNING id, lead_id, project_id, property_id, source_owner_type, source_owner_employee_id,
                       source_owner_channel_partner_id, handling_employee_id, source, status,
                       attribution_status, locked_at, expires_at
@@ -110,7 +110,7 @@ class OpportunityPersistence:
         updated_id = await connection.fetchval(
             """
             UPDATE opportunities SET status = 'CONVERTED'
-            WHERE id = $1 AND status = 'ACTIVE' AND expires_at > now()
+            WHERE id = $1 AND status IN ('NEW', 'INTERESTED', 'DEAL_IN_PROGRESS', 'ACTIVE') AND expires_at > now()
             RETURNING id
             """,
             opportunity_id,
@@ -122,7 +122,7 @@ class OpportunityPersistence:
         updated_id = await connection.fetchval(
             """
             UPDATE opportunities SET status = $2::opportunity_status
-            WHERE id = $1 AND status = 'ACTIVE' AND expires_at > now()
+            WHERE id = $1 AND status IN ('NEW', 'INTERESTED', 'DEAL_IN_PROGRESS', 'ACTIVE') AND expires_at > now()
             RETURNING id
             """,
             opportunity_id,
@@ -209,7 +209,7 @@ class OpportunityPersistence:
         """§16.10 EXPIRED: protection period ended without qualifying activity."""
         async with self._db.acquire() as conn:
             result = await conn.execute(
-                "UPDATE opportunities SET status = 'EXPIRED' WHERE status = 'ACTIVE' AND expires_at <= now()"
+                "UPDATE opportunities SET status = 'EXPIRED' WHERE status IN ('NEW', 'INTERESTED', 'DEAL_IN_PROGRESS', 'ACTIVE') AND expires_at <= now()"
             )
         parts = result.split()
         return int(parts[-1]) if parts and parts[-1].isdigit() else 0

@@ -35,8 +35,52 @@ class OpportunityClaimResponse(BaseModel):
     submitted_at: datetime
 
 
+# Statuses in which an opportunity is still live and can be acted on.
+OPEN_STATUSES: tuple[str, ...] = ("NEW", "INTERESTED", "DEAL_IN_PROGRESS", "ACTIVE")
+
+# Forward-only pipeline: NEW -> INTERESTED -> DEAL_IN_PROGRESS -> CONVERTED / DEAL_REJECTED.
+# LOST and RELEASED are independent exits available from any open status.
+STAGE_RANK: dict[str, int] = {"NEW": 0, "ACTIVE": 0, "INTERESTED": 1, "DEAL_IN_PROGRESS": 2}
+
+_STATUS_ALIASES: dict[str, str] = {
+    "CONVERTED": "CONVERTED",
+    "DEAL_COMPLETE": "CONVERTED",
+    "DEAL_CLOSED": "CONVERTED",
+    "DEAL_COMPLETED": "CONVERTED",
+    "COMPLETE": "CONVERTED",
+    "COMPLETED": "CONVERTED",
+    "WON": "CONVERTED",
+    "LOST": "LOST",
+    "DEAL_REJECTED": "DEAL_REJECTED",
+    "REJECTED": "DEAL_REJECTED",
+    "DEAL_LOST": "LOST",
+    "RELEASED": "RELEASED",
+    "RELEASE": "RELEASED",
+    "RELEASE_LOCK": "RELEASED",
+    "INTERESTED": "INTERESTED",
+    "DEAL_IN_PROGRESS": "DEAL_IN_PROGRESS",
+    "IN_PROGRESS": "DEAL_IN_PROGRESS",
+}
+
+
 class UpdateOpportunityStatusRequest(BaseModel):
-    status: str = Field(pattern="^(CONVERTED|LOST|RELEASED)$")
+    """Accepts the API values (CONVERTED/LOST/RELEASED) and the UI dropdown labels, case-insensitively.
+
+    ``status`` is normalised to INTERESTED, DEAL_IN_PROGRESS, CONVERTED (deal complete), DEAL_REJECTED, LOST or RELEASED.
+    """
+
+    status: str
+
+    @field_validator("status", mode="before")
+    @classmethod
+    def normalise_status(cls, value: object) -> str:
+        if not isinstance(value, str):
+            raise ValueError("status must be a string")
+        key = "_".join(value.replace("-", " ").upper().split())
+        normalised = _STATUS_ALIASES.get(key)
+        if normalised is None:
+            raise ValueError(f"Unsupported status '{value}'")
+        return normalised
 
 
 class ResolveConflictRequest(BaseModel):
