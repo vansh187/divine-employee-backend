@@ -157,3 +157,11 @@ class LeadPersistence:
                 limit,
             )
         return [dict(row) for row in rows]
+
+    async def mark_converted(self, lead_id: str) -> None:
+        """The lead has become a customer (one of its opportunities was converted)."""
+        async with self._db.acquire() as conn:
+            await conn.execute(
+                "UPDATE leads SET lifecycle_status = 'CONVERTED' WHERE id = $1 AND lifecycle_status <> 'CONVERTED'",
+                lead_id,
+            )
