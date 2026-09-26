@@ -117,6 +117,19 @@ class OpportunityPersistence:
         )
         return updated_id is not None
 
+    async def set_status_if_active(self, opportunity_id: str, new_status: str, connection: Any) -> bool:
+        """ACTIVE -> new_status; False if the opportunity is no longer ACTIVE or its protection has lapsed."""
+        updated_id = await connection.fetchval(
+            """
+            UPDATE opportunities SET status = $2::opportunity_status
+            WHERE id = $1 AND status = 'ACTIVE' AND expires_at > now()
+            RETURNING id
+            """,
+            opportunity_id,
+            new_status,
+        )
+        return updated_id is not None
+
     async def mark_attribution_conflict(self, opportunity_id: str, connection: Any) -> None:
         await connection.execute(
             "UPDATE opportunities SET status = 'ATTRIBUTION_CONFLICT', attribution_status = 'CONFLICT' WHERE id = $1",

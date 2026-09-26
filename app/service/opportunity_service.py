@@ -32,6 +32,10 @@ from app.core.exceptions import ConflictError, ForbiddenError, NotFoundError
 from app.persistence.db_persistence import Database
 from app.persistence.opportunity_persistence import OpportunityPersistence
 from app.schemas.opportunity_schema import OpportunityClaimResponse, OpportunityResponse
+from app.persistence.deal_persistence import DealPersistence
+from app.persistence.lock_persistence import LockPersistence
+from app.persistence.property_persistence import PropertyPersistence
+from app.service.deal_service import DealService
 from app.service.notification_service import NotificationService
 
 logger = logging.getLogger("divine_vision.opportunity_service")
@@ -49,6 +53,8 @@ class OpportunityService:
         self._opportunity_persistence = opportunity_persistence
         self._notification_service = notification_service
         self._settings = settings
+        self._lock_persistence = LockPersistence(db)
+        self._deal_service = DealService(db, DealPersistence(db), opportunity_persistence, PropertyPersistence(db))
 
     async def record_employee_claim(
         self,
@@ -166,6 +172,65 @@ class OpportunityService:
             )
             for row in rows
         ]
+
+    async def update_status(self, employee_id: str, opportunity_id: str, new_status: str) -> OpportunityResponse:
+        """Employee-driven CONVERTED / LOST / RELEASED for an ACTIVE opportunity.
+
+        CONVERTED on a plot-tied opportunity runs the normal deal conversion (deal + plot lock);
+        a plot-less one has no deal to create, so only its status changes.
+        """
+        row = await self._get_viewable_opportunity(employee_id, opportunity_id)
+        if row["status"] != "ACTIVE":
+            raise ConflictError(
+                "OPPORTUNITY_NOT_ACTIVE", f"Opportunity is '{row['status']}'; only an ACTIVE opportunity can be updated"
+            )
+
+        deal_created = new_status == "CONVERTED" and row["property_id"] is not None
+        if deal_created:
+            await self._deal_service.create_deal(employee_id, opportunity_id)
+        else:
+            async with self._db.transaction() as conn:
+                if not await self._opportunity_persistence.set_status_if_active(
+                    opportunity_id, new_status, connection=conn
+                ):
+                    raise ConflictError(
+                        "OPPORTUNITY_NOT_ACTIVE", "Only an ACTIVE, unexpired opportunity can be updated"
+                    )
+                if new_status in ("LOST", "RELEASED") and row["property_id"] is not None:
+                    await self._lock_persistence.release_property_lock_for_lead(
+                        str(row["lead_id"]), str(row["property_id"]), connection=conn
+                    )
+
+        await self._notify_status_change(row, new_status, deal_created)
+        updated = await self._opportunity_persistence.get_by_id(opportunity_id)
+        if updated is None:
+            raise NotFoundError("Opportunity not found")
+        return self._to_response(updated)
+
+    async def _notify_status_change(self, row: dict, new_status: str, deal_created: bool) -> None:
+        # Best-effort: the status change is already committed, so a notification failure must not fail the request.
+        recipients = {
+            str(employee)
+            for employee in (row["source_owner_employee_id"], row["handling_employee_id"])
+            if employee
+        }
+        if new_status == "CONVERTED":
+            event_type = "DEAL_LOCKED" if deal_created else "OPPORTUNITY_RESOLVED"
+            message = "Deal done: opportunity marked as converted" + (" and plot deal-locked" if deal_created else "")
+        else:
+            event_type = "OPPORTUNITY_RESOLVED"
+            message = f"Opportunity marked as {new_status.lower()}"
+        for recipient in recipients:
+            try:
+                await self._notification_service.emit(
+                    employee_id=recipient,
+                    event_type=event_type,
+                    entity_type="OPPORTUNITY",
+                    entity_id=str(row["id"]),
+                    message=message,
+                )
+            except Exception:
+                logger.exception("Failed to emit opportunity status notification")
 
     async def resolve_conflict(
         self,
