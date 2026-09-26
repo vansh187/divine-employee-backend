@@ -27,6 +27,8 @@ class Settings(BaseSettings):
     business_timezone: str = "Asia/Kolkata"
 
     lead_property_lock_duration_days: int = 3
+    # A booking in progress keeps its lead/plot locks and opportunity longer than the 3-day default.
+    deal_in_progress_duration_days: int = 15
     weekly_day_off_allowance: int = 1
 
     # Browser origins allowed to call the API (CORS), comma-separated. An Origin

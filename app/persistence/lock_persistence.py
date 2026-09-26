@@ -4,11 +4,13 @@ from datetime import datetime
 from typing import Any
 
 from app.persistence.db_persistence import Database
+from app.persistence.waitlist_persistence import WaitlistPersistence
 
 
 class LockPersistence:
     def __init__(self, db: Database) -> None:
         self._db = db
+        self._waitlist = WaitlistPersistence(db)
 
     async def get_active_lead_lock(self, lead_id: str, connection: Any) -> dict[str, Any] | None:
         """`FOR UPDATE` only holds a row lock for the life of a transaction — the
@@ -54,6 +56,7 @@ class LockPersistence:
             await connection.execute(
                 "UPDATE properties SET status = 'AVAILABLE' WHERE id = $1 AND status = 'LOCKED'", property_id
             )
+            await self._waitlist.promote_next_for_available_plots([property_id], connection)
         row = await connection.fetchrow(
             """
             SELECT id, property_id, employee_id, site_visit_id, lead_lock_id, locked_at, expires_at, status
@@ -105,7 +108,7 @@ class LockPersistence:
         return dict(row)
 
     async def renew_lead_lock(self, lock_id: str, new_expires_at: datetime, connection: Any = None) -> None:
-        query = "UPDATE lead_locks SET expires_at = $2 WHERE id = $1 AND status = 'ACTIVE'"
+        query = "UPDATE lead_locks SET expires_at = GREATEST(expires_at, $2) WHERE id = $1 AND status = 'ACTIVE'"
         if connection is not None:
             await connection.execute(query, lock_id, new_expires_at)
             return
@@ -114,18 +117,41 @@ class LockPersistence:
 
     async def renew_property_lock(self, lock_id: str, new_expires_at: datetime, connection: Any) -> None:
         await connection.execute(
-            "UPDATE property_locks SET expires_at = $2 WHERE id = $1 AND status = 'ACTIVE'", lock_id, new_expires_at
+            "UPDATE property_locks SET expires_at = GREATEST(expires_at, $2) WHERE id = $1 AND status = 'ACTIVE'", lock_id, new_expires_at
         )
 
     async def renew_property_locks_for_lead_lock(
         self, lead_lock_id: str, new_expires_at: datetime, connection: Any = None
     ) -> None:
-        query = "UPDATE property_locks SET expires_at = $2 WHERE lead_lock_id = $1 AND status = 'ACTIVE'"
+        query = "UPDATE property_locks SET expires_at = GREATEST(expires_at, $2) WHERE lead_lock_id = $1 AND status = 'ACTIVE'"
         if connection is not None:
             await connection.execute(query, lead_lock_id, new_expires_at)
             return
         async with self._db.acquire() as conn:
             await conn.execute(query, lead_lock_id, new_expires_at)
+
+    async def extend_locks_for_lead(
+        self, lead_id: str, property_id: str | None, new_expires_at: datetime, connection: Any
+    ) -> None:
+        """Longer hold for a booking in progress: the lead's lock and the lock on `property_id` only
+        (the lead's other plots keep their own opportunity's window). Never shortens a lock."""
+        if property_id is not None:
+            await connection.execute(
+                """
+                UPDATE property_locks pl SET expires_at = GREATEST(pl.expires_at, $3)
+                FROM lead_locks ll
+                WHERE pl.lead_lock_id = ll.id AND ll.lead_id = $1 AND ll.status = 'ACTIVE'
+                  AND pl.property_id = $2 AND pl.status = 'ACTIVE'
+                """,
+                lead_id,
+                property_id,
+                new_expires_at,
+            )
+        await connection.execute(
+            "UPDATE lead_locks SET expires_at = GREATEST(expires_at, $2) WHERE lead_id = $1 AND status = 'ACTIVE'",
+            lead_id,
+            new_expires_at,
+        )
 
     async def release_property_lock_for_lead(self, lead_id: str, property_id: str, connection: Any) -> None:
         """Frees a plot held for `lead_id`; a DEAL_LOCKED or SOLD plot is never downgraded."""
@@ -143,6 +169,7 @@ class LockPersistence:
             lead_id,
             property_id,
         )
+        await self._waitlist.promote_next_for_available_plots([property_id], connection)
 
     async def release_expired_locks(self) -> tuple[int, int]:
         """Server-side sweep: expire locks past `expires_at`. Called by a scheduled job/endpoint.
@@ -167,6 +194,9 @@ class LockPersistence:
                 await conn.execute(
                     "UPDATE properties SET status = 'AVAILABLE' WHERE id = ANY($1::uuid[]) AND status = 'LOCKED'",
                     property_ids,
+                )
+                await self._waitlist.promote_next_for_available_plots(
+                    [str(property_id) for property_id in property_ids], conn
                 )
         return self._extract_count(lead_result), self._extract_count(property_result)
 

@@ -4,6 +4,8 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Any, AsyncIterator
 
+from types import SimpleNamespace
+
 import pytest
 
 from app.core.exceptions import ConflictError, ForbiddenError, NotFoundError
@@ -49,6 +51,10 @@ class FakePersistence:
         self.row = row
         self.update_succeeds = update_succeeds
         self.set_calls: list[str] = []
+        self.renewed: list[Any] = []
+
+    async def renew(self, opportunity_id: str, expires_at: Any, connection: Any) -> None:
+        self.renewed.append(expires_at)
 
     async def get_by_id(self, opportunity_id: str) -> dict[str, Any] | None:
         return self.row
@@ -85,6 +91,12 @@ class FakeDealService:
 class FakeLocks:
     def __init__(self) -> None:
         self.released: list[tuple[str, str]] = []
+        self.extended: list[tuple[str, Any]] = []
+
+    async def extend_locks_for_lead(
+        self, lead_id: str, property_id: str | None, new_expires_at: Any, connection: Any
+    ) -> None:
+        self.extended.append((lead_id, property_id, new_expires_at))
 
     async def release_property_lock_for_lead(self, lead_id: str, property_id: str, connection: Any) -> None:
         self.released.append((lead_id, property_id))
@@ -106,7 +118,7 @@ def build_service(
 ) -> tuple[OpportunityService, FakePersistence, FakeNotifications, FakeDealService]:
     persistence = FakePersistence(row, update_succeeds)
     notifications = FakeNotifications(fail=notify_fails)
-    service = OpportunityService(FakeDb(), persistence, notifications, settings=None)  # type: ignore[arg-type]
+    service = OpportunityService(FakeDb(), persistence, notifications, settings=SimpleNamespace(deal_in_progress_duration_days=15))  # type: ignore[arg-type]
     deal_service = FakeDealService(persistence)
     service._deal_service = deal_service  # type: ignore[assignment]
     service._lock_persistence = FakeLocks()  # type: ignore[assignment]
@@ -295,3 +307,22 @@ async def test_rejected_or_lost_never_marks_lead_customer() -> None:
     service, _, _, _ = build_service(make_row())
     await service.update_status(OWNER, OPP_ID, "DEAL_REJECTED")
     assert service._lead_persistence.converted == []  # type: ignore[attr-defined]
+
+
+async def test_deal_in_progress_extends_opportunity_and_locks_to_15_days() -> None:
+    from datetime import datetime, timedelta, timezone
+
+    service, persistence, _, _ = build_service(make_row(status="INTERESTED", property_id=PLOT_ID))
+    await service.update_status(OWNER, OPP_ID, "DEAL_IN_PROGRESS")
+    assert len(persistence.renewed) == 1
+    days = (persistence.renewed[0] - datetime.now(timezone.utc)) / timedelta(days=1)
+    assert 14.99 < days <= 15
+    assert service._lock_persistence.extended == [(make_row()["lead_id"], PLOT_ID, persistence.renewed[0])]  # type: ignore[attr-defined]
+
+
+@pytest.mark.parametrize("status", ["INTERESTED", "LOST", "DEAL_REJECTED"])
+async def test_other_statuses_do_not_extend_anything(status: str) -> None:
+    service, persistence, _, _ = build_service(make_row(property_id=PLOT_ID))
+    await service.update_status(OWNER, OPP_ID, status)
+    assert persistence.renewed == []
+    assert service._lock_persistence.extended == []  # type: ignore[attr-defined]

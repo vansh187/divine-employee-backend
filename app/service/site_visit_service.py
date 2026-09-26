@@ -31,6 +31,7 @@ from app.persistence.lead_persistence import LeadPersistence
 from app.persistence.lock_persistence import LockPersistence
 from app.persistence.property_persistence import PropertyPersistence
 from app.persistence.site_visit_persistence import SiteVisitPersistence
+from app.persistence.waitlist_persistence import WaitlistPersistence
 from app.schemas.site_visit_schema import CreateSiteVisitRequest, SiteVisitResponse
 from app.schemas.opportunity_schema import OPEN_STATUSES, OpportunityResponse
 from app.service.notification_service import NotificationService
@@ -58,6 +59,7 @@ class SiteVisitService:
         self._site_visit_persistence = site_visit_persistence
         self._lead_persistence = lead_persistence
         self._lock_persistence = lock_persistence
+        self._waitlist_persistence = WaitlistPersistence(db)
         self._property_persistence = property_persistence
         self._day_off_persistence = day_off_persistence
         self._notification_service = notification_service
@@ -70,7 +72,7 @@ class SiteVisitService:
         if payload.idempotency_key:
             existing = await self._site_visit_persistence.find_by_idempotency_key(employee_id, payload.idempotency_key)
             if existing is not None:
-                return await self.get_site_visit(employee_id, str(existing["id"]))
+                return await self._replay_visit(employee_id, str(existing["id"]))
 
         normalized_phone = self._phone_normalizer.normalize(payload.phone)
         email = str(payload.email) if payload.email else None
@@ -98,6 +100,11 @@ class SiteVisitService:
             raise DayOffConflictError()
 
         lock_expires_at = self._business_clock.now() + timedelta(days=self._settings.lead_property_lock_duration_days)
+        # A visit to a lead/plot held by another employee is still recorded (the customer must not be
+        # lost); it just takes no lock and creates no opportunity. These describe that outcome.
+        lead_held = False
+        waitlisted = False
+        held_until: datetime | None = None
 
         try:
             async with self._db.transaction() as conn:
@@ -110,16 +117,17 @@ class SiteVisitService:
                 # row lock for the whole transaction, so the conflict-check result
                 # is still valid when we act on it after inserting the site visit.
                 active_lead_lock = await self._lock_persistence.get_active_lead_lock(str(lead["id"]), connection=conn)
-                if active_lead_lock is not None and active_lead_lock["employee_id"] != employee_id:
-                    raise LeadLockedError()
+                lead_held = active_lead_lock is not None and str(active_lead_lock["employee_id"]) != employee_id
 
                 active_property_lock = None
-                if payload.property_id:
+                plot_held = False
+                if payload.property_id and not lead_held:
                     active_property_lock = await self._lock_persistence.get_active_property_lock(
                         payload.property_id, connection=conn
                     )
-                    if active_property_lock is not None and active_property_lock["employee_id"] != employee_id:
-                        raise PropertyLockedError()
+                    plot_held = (
+                        active_property_lock is not None and str(active_property_lock["employee_id"]) != employee_id
+                    )
 
                 site_visit = await self._site_visit_persistence.create(
                     employee_id=employee_id,
@@ -137,30 +145,58 @@ class SiteVisitService:
                     connection=conn,
                 )
 
-                lead_lock = await self._create_or_renew_lead_lock(
-                    conn, lead, employee_id, str(site_visit["id"]), lock_expires_at, active_lead_lock
-                )
-
-                if payload.property_id:
-                    await self._create_or_renew_property_lock(
-                        conn, payload.property_id, employee_id, str(site_visit["id"]), str(lead_lock["id"]),
-                        lock_expires_at, active_property_lock,
+                if lead_held:
+                    held_until = active_lead_lock["expires_at"]
+                    await self._notification_service.emit(
+                        employee_id=str(active_lead_lock["employee_id"]),
+                        event_type="LEAD_LOCKED",
+                        entity_type="LEAD",
+                        entity_id=str(lead["id"]),
+                        message=f"Another employee logged a site visit for your locked lead {payload.visitor_name}",
+                        connection=conn,
+                    )
+                else:
+                    lead_lock = await self._create_or_renew_lead_lock(
+                        conn, lead, employee_id, str(site_visit["id"]), lock_expires_at, active_lead_lock
+                    )
+                    await self._lead_persistence.touch_latest_visit(
+                        str(lead["id"]), employee_id, visit_at, email=email, connection=conn
                     )
 
-                await self._lead_persistence.touch_latest_visit(
-                    str(lead["id"]), employee_id, visit_at, email=email, connection=conn
-                )
+                    if plot_held:
+                        waitlisted = True
+                        held_until = active_property_lock["expires_at"]
+                        await self._waitlist_persistence.add(
+                            payload.property_id, str(lead["id"]), employee_id, str(site_visit["id"]), connection=conn
+                        )
+                        await self._notification_service.emit(
+                            employee_id=str(active_property_lock["employee_id"]),
+                            event_type="PROPERTY_LOCKED",
+                            entity_type="PROPERTY",
+                            entity_id=payload.property_id,
+                            message="Another employee's customer is interested in a plot you are holding",
+                            connection=conn,
+                        )
+                    else:
+                        if payload.property_id:
+                            await self._create_or_renew_property_lock(
+                                conn, payload.property_id, employee_id, str(site_visit["id"]), str(lead_lock["id"]),
+                                lock_expires_at, active_property_lock,
+                            )
+                            await self._waitlist_persistence.cancel_for_employee(
+                                payload.property_id, employee_id, connection=conn
+                            )
 
-                await self._opportunity_service.record_employee_claim(
-                    connection=conn,
-                    lead_id=str(lead["id"]),
-                    project_id=payload.project_id,
-                    property_id=payload.property_id,
-                    employee_id=employee_id,
-                    site_visit_id=str(site_visit["id"]),
-                    qualifying_at=visit_at,
-                    expires_at=lock_expires_at,
-                )
+                        await self._opportunity_service.record_employee_claim(
+                            connection=conn,
+                            lead_id=str(lead["id"]),
+                            project_id=payload.project_id,
+                            property_id=payload.property_id,
+                            employee_id=employee_id,
+                            site_visit_id=str(site_visit["id"]),
+                            qualifying_at=visit_at,
+                            expires_at=lock_expires_at,
+                        )
 
                 await self._notification_service.emit(
                     employee_id=employee_id,
@@ -179,10 +215,21 @@ class SiteVisitService:
                     employee_id, payload.idempotency_key
                 )
                 if existing is not None:
-                    return await self.get_site_visit(employee_id, str(existing["id"]))
+                    return await self._replay_visit(employee_id, str(existing["id"]))
             self._translate_unique_violation(exc)
 
-        return await self.get_site_visit(employee_id, str(site_visit["id"]))
+        response = await self.get_site_visit(employee_id, str(site_visit["id"]))
+        return response.model_copy(update={"lead_held": lead_held, "waitlisted": waitlisted, "held_until": held_until})
+
+    async def _replay_visit(self, employee_id: str, site_visit_id: str) -> SiteVisitResponse:
+        """An idempotent retry: return the stored visit with the same hold flags the original response had."""
+        response = await self.get_site_visit(employee_id, site_visit_id)
+        try:
+            state = await self._site_visit_persistence.get_hold_state(site_visit_id)
+        except Exception:
+            logger.exception("Could not re-derive hold state for site visit %s", site_visit_id)
+            return response
+        return response.model_copy(update=state)
 
     async def get_site_visit(self, employee_id: str, site_visit_id: str) -> SiteVisitResponse:
         row = await self._site_visit_persistence.get_by_id(site_visit_id)

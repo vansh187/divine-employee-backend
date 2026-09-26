@@ -107,7 +107,7 @@ async def test_frozen_day_off_blocks_site_visit(client, make_employee, make_proj
     assert response.json()["error"]["code"] == "DAY_OFF_CONFLICT"
 
 
-async def test_second_employee_blocked_by_lead_lock(client, make_employee, make_project_and_plot):
+async def test_second_employee_visit_recorded_when_lead_locked(client, make_employee, make_project_and_plot):
     employee_1 = await make_employee()
     employee_2 = await make_employee()
     place = await make_project_and_plot()
@@ -138,11 +138,14 @@ async def test_second_employee_blocked_by_lead_lock(client, make_employee, make_
             "visit_at": _visit_at(hour=14),
         },
     )
-    assert conflict.status_code == 409
-    assert conflict.json()["error"]["code"] == "LEAD_LOCKED"
+    # The visit is still recorded, but it takes no lock and creates no opportunity.
+    assert conflict.status_code == 200, conflict.text
+    assert conflict.json()["data"]["lead_held"] is True
+    assert conflict.json()["data"]["opportunity"] is None
+    assert conflict.json()["data"]["can_update_opportunity"] is False
 
 
-async def test_second_employee_blocked_by_property_lock_different_lead(client, make_employee, make_project_and_plot):
+async def test_second_employee_waitlisted_when_plot_held_different_lead(client, make_employee, make_project_and_plot):
     employee_1 = await make_employee()
     employee_2 = await make_employee()
     place = await make_project_and_plot()
@@ -173,8 +176,10 @@ async def test_second_employee_blocked_by_property_lock_different_lead(client, m
             "visit_at": _visit_at(hour=16),
         },
     )
-    assert conflict.status_code == 409
-    assert conflict.json()["error"]["code"] == "PROPERTY_LOCKED"
+    # The visit is still recorded and the customer waits for the plot.
+    assert conflict.status_code == 200, conflict.text
+    assert conflict.json()["data"]["waitlisted"] is True
+    assert conflict.json()["data"]["opportunity"] is None
 
 
 async def test_same_employee_revisit_renews_lock_without_conflict(client, make_employee, make_project_and_plot):
