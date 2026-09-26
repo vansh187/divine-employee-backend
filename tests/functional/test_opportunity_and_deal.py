@@ -45,6 +45,11 @@ async def test_site_visit_creates_active_opportunity_owned_by_employee(client, m
     assert items[0]["handling_employee_id"] == str(employee["id"])
 
     opportunity_id = items[0]["id"]
+    assert visit.json()["data"]["opportunity"]["id"] == opportunity_id
+    assert visit.json()["data"]["can_update_opportunity"] is True
+    visits = await client.get("/api/v1/site-visits", headers=headers)
+    assert visits.status_code == 200
+    assert visits.json()["data"][0]["opportunity"]["id"] == opportunity_id
     detail = await client.get(f"/api/v1/opportunities/{opportunity_id}", headers=headers)
     assert detail.status_code == 200
     assert detail.json()["data"]["handling_employee_id"] == str(employee["id"])

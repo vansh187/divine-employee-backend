@@ -32,6 +32,7 @@ from app.persistence.lock_persistence import LockPersistence
 from app.persistence.property_persistence import PropertyPersistence
 from app.persistence.site_visit_persistence import SiteVisitPersistence
 from app.schemas.site_visit_schema import CreateSiteVisitRequest, SiteVisitResponse
+from app.schemas.opportunity_schema import OPEN_STATUSES, OpportunityResponse
 from app.service.notification_service import NotificationService
 from app.service.opportunity_service import OpportunityService
 
@@ -248,6 +249,18 @@ class SiteVisitService:
         raise ConflictError("CONCURRENT_UPDATE", "A conflicting request was processed at the same time; please retry") from exc
 
     def _to_response(self, row: dict) -> SiteVisitResponse:
+        opportunity = (
+            OpportunityResponse.model_validate(row["opportunity"])
+            if row.get("opportunity") else None
+        )
+        can_update = bool(
+            opportunity
+            and str(row["employee_id"]) in (
+                opportunity.source_owner_employee_id, opportunity.handling_employee_id
+            )
+            and opportunity.status in OPEN_STATUSES
+            and opportunity.expires_at > self._business_clock.now()
+        )
         return SiteVisitResponse(
             id=str(row["id"]),
             employee_id=str(row["employee_id"]),
@@ -266,4 +279,6 @@ class SiteVisitService:
             plot_no=row.get("plot_no"),
             created_at=row["created_at"],
             updated_at=row["updated_at"],
+            opportunity=opportunity,
+            can_update_opportunity=can_update,
         )
