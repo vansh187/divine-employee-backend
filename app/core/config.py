@@ -76,6 +76,13 @@ class Settings(BaseSettings):
     signup_otp_max_sends_per_hour: int = Field(default=5, ge=1, le=50)
     signup_pending_ttl_hours: int = Field(default=24, ge=1, le=168)
 
+    # --- Forgot password (email OTP) ---
+    password_reset_otp_ttl_minutes: int = Field(default=10, ge=1, le=60)
+    password_reset_otp_max_attempts: int = Field(default=5, ge=1, le=20)
+    password_reset_resend_cooldown_seconds: int = Field(default=30, ge=0, le=3600)
+    password_reset_max_requests_per_hour: int = Field(default=5, ge=1, le=50)
+    password_reset_token_ttl_minutes: int = Field(default=15, ge=1, le=60)
+
     # --- Outgoing email ---
     # "smtp" sends real email (production). "log" writes the message to the
     # server log instead — local development only, never on a shared host.

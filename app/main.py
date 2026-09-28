@@ -16,6 +16,7 @@ from app.apis.v1.internal_api import router as internal_router
 from app.apis.v1.lead_api import router as lead_router
 from app.apis.v1.notification_api import router as notification_router
 from app.apis.v1.opportunity_api import router as opportunity_router
+from app.apis.v1.password_reset_api import router as password_reset_router
 from app.apis.v1.property_api import router as property_router
 from app.apis.v1.signup_api import router as signup_router
 from app.apis.v1.site_visit_api import router as site_visit_router
@@ -26,6 +27,7 @@ from app.core.rate_limit import RateLimiter
 from app.persistence.db_persistence import Database
 from app.persistence.lock_persistence import LockPersistence
 from app.persistence.opportunity_persistence import OpportunityPersistence
+from app.persistence.password_reset_persistence import PasswordResetPersistence
 from app.persistence.signup_persistence import SignupPersistence
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -40,7 +42,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.db = db
     app.state.rate_limiter = RateLimiter(settings)
 
-    lock_sweeper = LockSweeper(LockPersistence(db), OpportunityPersistence(db), SignupPersistence(db))
+    lock_sweeper = LockSweeper(
+        LockPersistence(db), OpportunityPersistence(db), SignupPersistence(db), PasswordResetPersistence(db)
+    )
     if settings.enable_background_lock_sweeper:
         lock_sweeper.start()
 
@@ -72,6 +76,7 @@ def create_app() -> FastAPI:
     prefix = settings.api_v1_prefix
     app.include_router(auth_router, prefix=prefix)
     app.include_router(signup_router, prefix=prefix)
+    app.include_router(password_reset_router, prefix=prefix)
     app.include_router(dashboard_router, prefix=prefix)
     app.include_router(lead_router, prefix=prefix)
     app.include_router(site_visit_router, prefix=prefix)
