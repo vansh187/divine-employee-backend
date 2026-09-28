@@ -33,7 +33,7 @@ _ALL_TABLES = [
     "deal_locks", "deals", "opportunity_resolutions", "opportunity_claims", "opportunities",
     "property_locks", "lead_locks", "follow_up_actions", "site_visits", "leads",
     "attendance_records", "weekly_day_offs", "notifications", "audit_events",
-    "properties", "projects", "channel_partners", "refresh_tokens", "employee_signups", "employees",
+    "properties", "projects", "channel_partners", "refresh_tokens", "employee_signups", "password_reset_requests", "employees",
 ]
 
 

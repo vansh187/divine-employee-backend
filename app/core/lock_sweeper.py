@@ -14,6 +14,7 @@ import logging
 
 from app.persistence.lock_persistence import LockPersistence
 from app.persistence.opportunity_persistence import OpportunityPersistence
+from app.persistence.password_reset_persistence import PasswordResetPersistence
 from app.persistence.signup_persistence import SignupPersistence
 
 logger = logging.getLogger("divine_vision.lock_sweeper")
@@ -27,10 +28,12 @@ class LockSweeper:
         lock_persistence: LockPersistence,
         opportunity_persistence: OpportunityPersistence,
         signup_persistence: SignupPersistence | None = None,
+        password_reset_persistence: PasswordResetPersistence | None = None,
     ) -> None:
         self._lock_persistence = lock_persistence
         self._opportunity_persistence = opportunity_persistence
         self._signup_persistence = signup_persistence
+        self._password_reset_persistence = password_reset_persistence
         self._task: asyncio.Task | None = None
 
     def start(self) -> None:
@@ -48,19 +51,25 @@ class LockSweeper:
         lead_count, property_count = await self._lock_persistence.release_expired_locks()
         opportunity_count = await self._opportunity_persistence.expire_stale_opportunities()
         signup_count = await self._signup_persistence.delete_expired() if self._signup_persistence else 0
-        if lead_count or property_count or opportunity_count or signup_count:
+        reset_count = (
+            await self._password_reset_persistence.delete_stale() if self._password_reset_persistence else 0
+        )
+        if lead_count or property_count or opportunity_count or signup_count or reset_count:
             logger.info(
-                "Expired %s lead locks, %s property locks, %s opportunities; deleted %s stale signups",
+                "Expired %s lead locks, %s property locks, %s opportunities; "
+                "deleted %s stale signups, %s stale password resets",
                 lead_count,
                 property_count,
                 opportunity_count,
                 signup_count,
+                reset_count,
             )
         return {
             "expired_lead_locks": lead_count,
             "expired_property_locks": property_count,
             "expired_opportunities": opportunity_count,
             "deleted_expired_signups": signup_count,
+            "deleted_stale_password_resets": reset_count,
         }
 
     async def _run_forever(self) -> None:

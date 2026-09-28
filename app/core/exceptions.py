@@ -105,6 +105,11 @@ class OtpExpiredError(AppError):
         super().__init__(code="OTP_EXPIRED", message=message, status_code=410)
 
 
+class ResetExpiredError(AppError):
+    def __init__(self, message: str = "This reset session has expired. Start again.") -> None:
+        super().__init__(code="RESET_EXPIRED", message=message, status_code=410)
+
+
 class EmailDeliveryError(AppError):
     def __init__(self, message: str = "We couldn't send the verification email. Please try again shortly.") -> None:
         super().__init__(code="EMAIL_DELIVERY_FAILED", message=message, status_code=503)

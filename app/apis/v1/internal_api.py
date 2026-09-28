@@ -14,6 +14,7 @@ from app.core.lock_sweeper import LockSweeper
 from app.core.responses import SuccessResponse
 from app.persistence.lock_persistence import LockPersistence
 from app.persistence.opportunity_persistence import OpportunityPersistence
+from app.persistence.password_reset_persistence import PasswordResetPersistence
 from app.persistence.signup_persistence import SignupPersistence
 
 logger = logging.getLogger("divine_vision.internal_api")
@@ -27,7 +28,7 @@ router = APIRouter(prefix="/internal", tags=["Internal"])
 async def sweep_expired_locks(_cron: CronAuthDep, db: DatabaseDep) -> SuccessResponse[dict[str, int]]:
     try:
         result = await LockSweeper(
-            LockPersistence(db), OpportunityPersistence(db), SignupPersistence(db)
+            LockPersistence(db), OpportunityPersistence(db), SignupPersistence(db), PasswordResetPersistence(db)
         ).sweep_once()
         return SuccessResponse(data=result, message="Sweep completed")
     except AppError:

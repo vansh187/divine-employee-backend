@@ -119,13 +119,28 @@ class EmployeePersistence:
                 replaced_by_token_hash,
             )
 
-    async def revoke_all_refresh_tokens(self, employee_id: str) -> None:
+    async def update_password(self, employee_id: str, password_hash: str, connection: Any) -> dict[str, Any] | None:
+        """Sets a new password on an ACTIVE employee. Returns None if the employee
+        is missing or no longer ACTIVE."""
+        row = await connection.fetchrow(
+            """
+            UPDATE employees SET password_hash = $2
+            WHERE id = $1 AND status = 'ACTIVE'
+            RETURNING id, name, email
+            """,
+            employee_id,
+            password_hash,
+        )
+        return dict(row) if row else None
+
+    async def revoke_all_refresh_tokens(self, employee_id: str, connection: Any | None = None) -> None:
+        query = """
+            UPDATE refresh_tokens
+            SET revoked_at = now()
+            WHERE employee_id = $1 AND revoked_at IS NULL
+        """
+        if connection is not None:
+            await connection.execute(query, employee_id)
+            return
         async with self._db.acquire() as conn:
-            await conn.execute(
-                """
-                UPDATE refresh_tokens
-                SET revoked_at = now()
-                WHERE employee_id = $1 AND revoked_at IS NULL
-                """,
-                employee_id,
-            )
+            await conn.execute(query, employee_id)
