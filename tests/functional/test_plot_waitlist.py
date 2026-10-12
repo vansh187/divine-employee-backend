@@ -100,6 +100,63 @@ async def test_waiter_notified_when_holder_releases_and_can_then_take_the_plot(
     ) == waiter["id"]
 
 
+async def test_cancelled_deal_frees_the_plot_and_alerts_the_waitlist(
+    client, make_employee, make_project_and_plot, raw_conn
+):
+    holder = await make_employee()
+    waiter = await make_employee()
+    place = await make_project_and_plot()
+    plot = uuid.UUID(place["property_id"])
+    holder_headers = await auth_headers(client, holder["email"], holder["password"])
+    waiter_headers = await auth_headers(client, waiter["email"], waiter["password"])
+    first = await _visit(client, holder_headers, place, _phone(), "Holder Lead")
+    waiter_phone = _phone()
+    await _visit(client, waiter_headers, place, waiter_phone, "Waiting Lead")
+
+    deal = await client.post("/api/v1/deals", headers=holder_headers, json={"opportunity_id": first["opportunity"]["id"]})
+    assert deal.status_code == 200, deal.text
+    # A confirmed deal keeps the waiter waiting.
+    assert await raw_conn.fetchval("SELECT status FROM plot_waitlist WHERE employee_id = $1", waiter["id"]) == "WAITING"
+
+    cancelled = await client.post(f"/api/v1/deals/{deal.json()['data']['id']}/cancel", headers=holder_headers)
+    assert cancelled.status_code == 200, cancelled.text
+    assert await raw_conn.fetchval("SELECT status FROM properties WHERE id = $1", plot) == "AVAILABLE"
+    assert await raw_conn.fetchval(
+        "SELECT count(*) FROM property_locks WHERE property_id = $1 AND status = 'ACTIVE'", plot
+    ) == 0
+    assert await raw_conn.fetchval("SELECT status FROM plot_waitlist WHERE employee_id = $1", waiter["id"]) == "PROMOTED"
+    assert await raw_conn.fetchval(
+        "SELECT count(*) FROM notifications WHERE employee_id = $1 AND event_type = 'PROPERTY_LOCK_RELEASED'",
+        waiter["id"],
+    ) == 1
+
+    taken = await _visit(client, waiter_headers, place, waiter_phone, "Waiting Lead")
+    assert taken["waitlisted"] is False
+    assert taken["opportunity"]["status"] == "NEW"
+    assert await raw_conn.fetchval(
+        "SELECT employee_id FROM property_locks WHERE property_id = $1 AND status = 'ACTIVE'", plot
+    ) == waiter["id"]
+
+
+async def test_cancelled_deal_with_no_waitlist_just_frees_the_plot(client, make_employee, make_project_and_plot, raw_conn):
+    holder = await make_employee()
+    place = await make_project_and_plot()
+    plot = uuid.UUID(place["property_id"])
+    headers = await auth_headers(client, holder["email"], holder["password"])
+    phone = _phone()
+    first = await _visit(client, headers, place, phone)
+    deal = (await client.post("/api/v1/deals", headers=headers, json={"opportunity_id": first["opportunity"]["id"]})).json()["data"]
+
+    assert (await client.post(f"/api/v1/deals/{deal['id']}/cancel", headers=headers)).status_code == 200
+    assert await raw_conn.fetchval("SELECT status FROM properties WHERE id = $1", plot) == "AVAILABLE"
+    assert await raw_conn.fetchval(
+        "SELECT count(*) FROM notifications WHERE event_type = 'PROPERTY_LOCK_RELEASED' AND entity_id = $1", plot
+    ) == 0
+    # The same employee can log a fresh visit and take the plot again.
+    again = await _visit(client, headers, place, phone)
+    assert again["waitlisted"] is False and again["opportunity"]["status"] == "NEW"
+
+
 async def test_lead_held_by_other_employee_still_records_visit_without_lock(
     client, make_employee, make_project_and_plot, raw_conn
 ):
