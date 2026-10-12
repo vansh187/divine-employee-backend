@@ -1,7 +1,8 @@
 """Business logic for Opportunity -> Deal conversion and the hard Deal Lock (§20.6).
 
 A DEAL_LOCKED plot blocks every other Opportunity/Visit/Deal until the deal is
-completed (-> SOLD) or cancelled (-> AVAILABLE). Deal locks never auto-expire.
+completed (-> SOLD) or cancelled (-> AVAILABLE, plot lock released, waitlist
+alerted). Deal locks never auto-expire.
 """
 
 import asyncpg
@@ -9,6 +10,7 @@ import asyncpg
 from app.core.exceptions import ConflictError, DealLockedError, ForbiddenError, NotFoundError, ValidationFailedError
 from app.persistence.db_persistence import Database
 from app.persistence.deal_persistence import DealPersistence
+from app.persistence.lock_persistence import LockPersistence
 from app.persistence.opportunity_persistence import OpportunityPersistence
 from app.persistence.property_persistence import PropertyPersistence
 from app.schemas.deal_schema import DealResponse
@@ -27,6 +29,7 @@ class DealService:
         self._deal_persistence = deal_persistence
         self._opportunity_persistence = opportunity_persistence
         self._property_persistence = property_persistence
+        self._lock_persistence = LockPersistence(db)
 
     async def create_deal(self, employee_id: str, opportunity_id: str) -> DealResponse:
         opportunity = await self._opportunity_persistence.get_by_id(opportunity_id)
@@ -115,6 +118,11 @@ class DealService:
                 )
             await self._deal_persistence.release_deal_lock(deal_id, connection=conn)
             await self._property_persistence.update_status(str(deal["property_id"]), "AVAILABLE", connection=conn)
+            # The plot is free again: drop the customer's plot lock from the original visit
+            # (as DEAL_REJECTED does) and alert the next employee on the plot's waitlist.
+            await self._lock_persistence.release_property_lock_for_lead(
+                str(deal["lead_id"]), str(deal["property_id"]), connection=conn
+            )
 
         return self._to_response(updated)
 
