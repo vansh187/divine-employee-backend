@@ -13,8 +13,9 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from app.core.config import Settings, get_settings
 from app.core.context import CurrentEmployee
 from app.core.datetime_utils import BusinessClock
+from app.core.email_policy import is_company_email
 from app.core.email_sender import EmailSender, build_email_sender
-from app.core.exceptions import ForbiddenError
+from app.core.exceptions import ForbiddenError, UnauthorizedError
 from app.core.security import TOKEN_TYPE_ACCESS, PasswordHasher, TokenService
 from app.persistence.db_persistence import Database
 
@@ -63,10 +64,13 @@ def get_current_employee(
     token_service: TokenServiceDep,
 ) -> CurrentEmployee:
     payload = token_service.decode_token(credentials.credentials, expected_type=TOKEN_TYPE_ACCESS)
+    email = payload.get("email", "")
+    if not is_company_email(email):
+        raise UnauthorizedError("Only company email accounts can access this resource")
     return CurrentEmployee(
         employee_id=payload["sub"],
         employee_code=payload.get("employee_code", ""),
-        email=payload.get("email", ""),
+        email=email,
     )
 
 

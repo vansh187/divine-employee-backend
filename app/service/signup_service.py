@@ -23,6 +23,7 @@ import asyncpg
 
 from app.core.config import Settings
 from app.core.datetime_utils import BusinessClock
+from app.core.email_policy import COMPANY_EMAIL_DOMAIN, is_company_email
 from app.core.email_sender import EmailSender
 from app.core.exceptions import (
     AppError,
@@ -133,6 +134,7 @@ class SignupService:
     async def resend_code(self, raw_email: str) -> SignupPendingResponse:
         try:
             email = self._normalize_email(raw_email)
+            self._assert_allowed_domain(email)
             code = self._otp_codec.generate()
             otp_hash = self._otp_codec.digest(email, code)
 
@@ -164,6 +166,7 @@ class SignupService:
     async def verify(self, raw_email: str, otp: str) -> TokenPairResponse:
         try:
             email = self._normalize_email(raw_email)
+            self._assert_allowed_domain(email)
             employee = await self._verify_and_create_employee(email, otp)
         except AppError:
             raise
@@ -241,16 +244,12 @@ class SignupService:
         return str(email).strip().lower()
 
     def _assert_allowed_domain(self, email: str) -> None:
-        allowed = self._settings.signup_allowed_email_domain_list
-        if not allowed or email in self._settings.signup_allowed_email_list:
+        if is_company_email(email):
             return
-        domain = email.rsplit("@", 1)[-1]
-        if domain not in allowed:
-            readable = ", ".join(f"@{item}" for item in allowed)
-            raise ValidationFailedError(
-                "Use your company email address",
-                fields=[{"field": "body.email", "message": f"Only {readable} email addresses can sign up"}],
-            )
+        raise ValidationFailedError(
+            "Use your company email address",
+            fields=[{"field": "body.email", "message": f"Only @{COMPANY_EMAIL_DOMAIN} email addresses can sign up"}],
+        )
 
     def _new_otp_expiry(self) -> datetime:
         return self._business_clock.now() + timedelta(minutes=self._settings.signup_otp_ttl_minutes)

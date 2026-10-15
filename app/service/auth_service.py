@@ -3,6 +3,7 @@
 No SQL and no asyncpg import here — all persistence goes through EmployeePersistence.
 """
 
+from app.core.email_policy import is_company_email
 from app.core.exceptions import NotFoundError, UnauthorizedError
 from app.core.security import PasswordHasher, TokenService
 from app.persistence.employee_persistence import EmployeePersistence
@@ -21,6 +22,8 @@ class AuthService:
         self._password_hasher = password_hasher
 
     async def login(self, email: str, password: str) -> TokenPairResponse:
+        if not is_company_email(email):
+            raise UnauthorizedError("Invalid email or password")
         employee = await self._employee_persistence.get_by_email(email)
         if employee is None:
             raise UnauthorizedError("Invalid email or password")
@@ -68,6 +71,8 @@ class AuthService:
         return await self._issue_token_pair(employee_id, employee_code, email)
 
     async def _issue_token_pair(self, employee_id: str, employee_code: str, email: str) -> TokenPairResponse:
+        if not is_company_email(email):
+            raise UnauthorizedError("Only company email accounts can sign in")
         access_token = self._token_service.create_access_token(employee_id, employee_code, email)
         refresh_token, expires_at = self._token_service.create_refresh_token(employee_id)
         token_hash = self._token_service.hash_token(refresh_token)
