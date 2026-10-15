@@ -61,14 +61,9 @@ class Settings(BaseSettings):
     cron_secret: str | None = Field(default=None, min_length=32)
 
     # --- Employee signup (email OTP) ---
-    # Only these email domains may self-register (comma-separated). Empty = any
-    # domain, which lets anyone on the internet create an employee account.
-    # TEMPORARY: gmail.com is allowed while testing is in progress (requested
-    # 2026-09-24, until further notice). Anyone with a Gmail address can create an
-    # employee account — remove gmail.com here before launch.
-    signup_allowed_email_domains: str = "divinevisioninfra.com,gmail.com"
-    # Individual addresses allowed in addition to the domains above
-    # (comma-separated) — e.g. test users outside the company domain.
+    # Compatibility settings; authentication enforces the company domain in code.
+    signup_allowed_email_domains: str = "divinevisioninfra.com"
+    # Compatibility setting; individual addresses do not bypass the company-domain rule.
     signup_allowed_emails: str = ""
     signup_otp_ttl_minutes: int = Field(default=10, ge=1, le=60)
     signup_otp_max_attempts: int = Field(default=5, ge=1, le=20)
