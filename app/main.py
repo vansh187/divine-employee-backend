@@ -57,10 +57,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 def create_app() -> FastAPI:
     settings = get_settings()
+    docs_enabled = settings.app_env.strip().lower() != "production"
     app = FastAPI(
         title="Divine Vision Infra — Employee Site Visit Portal API",
         version="1.5.0",
         lifespan=lifespan,
+        docs_url="/docs" if docs_enabled else None,
+        redoc_url="/redoc" if docs_enabled else None,
+        openapi_url="/openapi.json" if docs_enabled else None,
     )
 
     app.add_middleware(
